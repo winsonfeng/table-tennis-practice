@@ -139,6 +139,10 @@
   <div class="note">直接在 3D 台面上<b>点击</b>任意位置即可自由指定落点。</div>
 
   <h3>击球参数</h3>
+  <div class="btns">
+    <button id="b_autoall" class="on">自动模式：开</button>
+  </div>
+  <div class="note"><b>自动模式</b>（默认）：系统自动迎球 + 按落点反解出<b>最佳时机 / 角度 / 力度</b>。<br><b>手动模式</b>（点按钮或按 <b>M</b>）：球拍<b>完全跟鼠标</b>，出球方向与力度只由<b>拍面倾角/转向 + 力度滑块</b>决定，系统<b>不再保证落台</b>，只给预测线路。</div>
   <div class="row"><label>力度</label><input type="range" id="s_power" min="0" max="100" value="35"><span class="v" id="v_power"></span></div>
   <div class="row"><label>摩擦(旋转)</label><input type="range" id="s_spin" min="-100" max="100" value="45"><span class="v" id="v_spin"></span></div>
   <div class="row"><label>侧向摩擦</label><input type="range" id="s_side" min="-100" max="100" value="0"><span class="v" id="v_side"></span></div>
@@ -158,6 +162,7 @@
   <div class="row"><label>AI 难度</label><input type="range" id="s_ai" min="0" max="100" value="60"><span class="v" id="v_ai"></span></div>
   <label class="chk"><input type="checkbox" id="k_comp" checked>力度不足时自动补偿</label>
   <label class="chk"><input type="checkbox" id="k_force" checked>显示受力矢量</label>
+  <label class="chk"><input type="checkbox" id="k_trail1" checked>球轨迹只保留最近一拍</label>
   <label class="chk"><input type="checkbox" id="k_in" checked>显示来球轨迹</label>
   <label class="chk"><input type="checkbox" id="k_out" checked>显示回球预览</label>
 
@@ -272,7 +277,7 @@
 </div>
 
 <div id="frzbar" class="hidden"><span class="dot"></span><span id="frzbarTxt"></span></div>
-<div id="tip">左/右键<b>拖动</b>旋转视角 · 滚轮缩放 · <b>Q/E</b> 环绕 · <b>F</b> 切视角 · 左键<b>点击</b>台面指定落点 · <b>Z</b> 击球定格 · 定格中 <b>Shift+拖动</b> 调拍面 · <b>G</b> 拍面归零 · <b>B</b> 反手横打/推挡</div>
+<div id="tip">左/右键<b>拖动</b>旋转视角 · 滚轮缩放 · <b>Q/E</b> 环绕 · <b>F</b> 切视角 · 左键<b>点击</b>台面指定落点 · <b>Z</b> 击球定格 · 定格中 <b>Shift+拖动</b> 调拍面 · <b>G</b> 拍面归零 · <b>B</b> 反手横打/推挡 · <b>M</b> 自动/手动</div>
 
 <div id="bot" class="panel">
   <div class="lab"><span>击球时机</span><span id="tbTxt">—</span></div>
@@ -851,6 +856,24 @@ function padPose(style, who, bh){
   const key = bh ? (who === 'p' ? playerBH : 'rpb') : 'fh';
   return t[key] || t.fh;
 }
+/* 总开关：自动模式（自动迎球 + 参数自动最佳化） ↔ 手动模式（全靠自己） */
+let assistSaved = 88;
+function setAuto(on, silent){
+  G.auto = !!on;
+  if (G.auto) G.P.assist = assistSaved; else { assistSaved = G.P.assist; G.P.assist = 0; }
+  if (UI.s_assist){ UI.s_assist.value = G.P.assist; UI.s_assist.disabled = !G.auto; }
+  const b = document.getElementById('b_autoall');
+  if (b){ b.textContent = G.auto ? '自动模式：开' : '自动模式：关（手动）';
+          b.classList.toggle('on', G.auto); }
+  syncLabels();
+  planDirty = true;
+  if (G.frz && G.frz.active) frzResolve();
+  if (!silent && typeof toast === 'function')
+    toast(G.auto ? '自动模式' : '手动模式',
+          G.auto ? '自动迎球 + 参数自动最佳化'
+                 : '球拍完全跟鼠标 · 出球由你的拍面与力度决定，系统不再保证落台');
+}
+
 function setBH(m){
   playerBH = (m === 'push') ? 'push' : 'rpb';
   const br = document.getElementById('b_bh_rpb'), bu = document.getElementById('b_bh_push');
@@ -1016,6 +1039,7 @@ const G = {
   netTouch:false,                    // 本次击球是否已擦网（每回合只判一次）
   paused:false, slow:false,
   target:[0, -0.95],                   // 玩家落点目标 [x,z]
+  auto:true,           // 总开关：自动迎球 + 击球参数自动最佳化（false = 全手动）
   P:{ power:35, spin:45, side:0, timing:0, hp:1.02, mu:0.45, grip:0.78, rest:0.82, assist:88, ai:60,
       tilt:0, face:0 },                          // tilt/face：拍面手动微调（度）
   Pk:{ power:35, spin:45, side:0, timing:0, hp:1.02, mu:0.45, grip:0.78, rest:0.82 },
@@ -1118,6 +1142,7 @@ function resetBall(serverSide){
   G.st.set([pad.p[0]+n[0]*(PH.r+0.004), pad.p[1]+n[1]*(PH.r+0.004), pad.p[2]+n[2]*(PH.r+0.004), 0,0,0, 0,0,0]);
   G.live = false; G.phase = 'ready'; G.plan = null; G.aiPlan = null; G.bounces = 0; G.last = '';
   G.pp.swing = 0; G.ap.swing = 0; G.aiLock = null; G.netTouch = false;
+  clearTrail();
   if (G.frz && G.frz.active){                 // 新回合开始 → 退出定格并还原机位
     G.frz.active = false; G.frz.sol = null; G.frz.evPath = null;
     if (G.camMode === CAM_MACRO) setCam(G.frz.prevCam || 0);
@@ -1169,6 +1194,7 @@ function serveFallback(side, c, P){
 }
 function applyShot(st, who, n, vp){
   for (let i=0;i<9;i++) G.st[i] = st[i];
+  if (!UI.k_trail1 || UI.k_trail1.checked) clearTrail();   // 球轨迹只保留最近一拍
   const pad = who==='p' ? G.pp : G.ap;
   pad.n = n.slice(); pad.swing = 1; pad.swingDir = n.slice();
   pad.cd = 0.08; G.aiLock = null;
@@ -1224,12 +1250,31 @@ function aiParamObj(){
 /* ══════════════════════════════════════════════════════════════════
    7. 玩家解算：击球点 + 方向 + 时机 + 力度 + 摩擦
    ══════════════════════════════════════════════════════════════════ */
+/* 手动模式：出球方向 / 力度完全由「拍面倾角 + 转向 + 力度滑块」决定，
+   不做任何自动求解与补偿（只预测线路，落不落台由你自己负责） */
+function manualNormal(P){
+  const tilt = (P.tilt||0)*Math.PI/180, face = (P.face||0)*Math.PI/180;
+  const loft = clamp(tilt + 0.10, -0.45, 1.00);    // 默认抬 5.7°，不至于一上来就下网
+  const yaw  = clamp(face, -1.00, 1.00);
+  return { n: shotDir(-1, yaw, loft), loft, yaw };
+}
+function manualPlan(c, P){
+  const m = manualNormal(P);
+  const drive = -1.5 + clamp(P.power,0,100)/100*10;
+  const [bT, bS] = brushOf(P);
+  const r = evalShot(c, -1, m.yaw, m.loft, drive, bT, bS, P);
+  if (!r) return null;
+  return { s:0, r, loft:m.loft, yaw:m.yaw, drive, drive0:drive, n:r.n, vp:r.vp,
+           st:r.st, ev:r.ev, info:r.info, compensated:false, faceOn:true, manual:true };
+}
 function computePlan(){
   if (!G.live || G.last === 'p') return;
   const P = paramObj();
   const cd = findContact(G.st, -1, G.target, P);
   if (!cd){ G.plan = null; return; }
-  const sol = faceAdjust(cd.c, solveShot(cd.c, -1, G.target, P, G.comp), G.target, P, G.comp);
+  const sol = G.auto
+    ? faceAdjust(cd.c, solveShot(cd.c, -1, G.target, P, G.comp), G.target, P, G.comp)
+    : manualPlan(cd.c, P);
   if (!sol){ G.plan = null; return; }
   G.plan = { c:cd.c, t:cd.t, t0:cd.t, born:performance.now(), ...sol,
              target:G.target.slice(), evPath: predict(sol.r.st, 2.2, 1, true) };
@@ -1399,6 +1444,7 @@ addEventListener('keydown', e=>{
   if (e.key === 'g' || e.key === 'G'){ if (G.P.tilt || G.P.face){ setFace(0,0); toast('拍面归零','已恢复自动解算角度'); } }
   if (e.key === 'z' || e.key === 'Z'){ setFrzMode(!G.frz.on); }
   if (e.key === 'b' || e.key === 'B'){ setBH(playerBH === 'rpb' ? 'push' : 'rpb'); }
+  if (e.key === 'm' || e.key === 'M'){ setAuto(!G.auto); }
   if (e.key === 'x' || e.key === 'X'){ if (G.frz && G.frz.active){ frzAuto(); toast('已求解最优','时机 / 角度 / 力度已自动设置'); } }
   if (e.key >= '1' && e.key <= '8'){ const i = +e.key - 1; if (i < CAM.length) setCam(i); }
 });
@@ -1577,7 +1623,7 @@ function frzEnter(c0, info){
   G.live = false;                                  // 冻结物理推进（不会判分）
   G.st.set(c0); G.st[3] = 0; G.st[4] = 0; G.st[5] = 0;   // 球停在接触点，保留旋转
   setCam(CAM_MACRO);
-  if (UI.k_autobest && UI.k_autobest.checked) frzAuto(); else frzResolve();
+  if (G.auto && UI.k_autobest && UI.k_autobest.checked) frzAuto(); else frzResolve();
   syncFrzUI();
   toast('击球定格', '拍面微距 · 可实时调参后出球');
 }
@@ -1617,7 +1663,9 @@ function frzResolve(){
   f.timingClamp = t;
   f.c = Array.from(c);
   G.st[0] = c[0]; G.st[1] = c[1]; G.st[2] = c[2];   // 球跟随时机偏移后的接触点（拍面/分析点同步）
-  const sol = faceAdjust(c, solveShot(c, -1, G.target, P, G.comp), G.target, P, G.comp);
+  const sol = G.auto
+    ? faceAdjust(c, solveShot(c, -1, G.target, P, G.comp), G.target, P, G.comp)
+    : manualPlan(c, P);
   f.sol = sol;
   if (sol){
     f.evPath = predict(sol.r.st, 2.2, 1, true);
@@ -1874,6 +1922,8 @@ function updateCharacters(dt){
 }
 
 const trail = [];
+/* 清空球轨迹：每次出手都清，只保留"最近这一拍"的飞行弧线 */
+function clearTrail(){ trail.length = 0; }
 function updateVisual(dt){
   const st = G.st;
   ballG.position.set(st[0], st[1], st[2]);
@@ -1896,7 +1946,9 @@ function updateVisual(dt){
   // 轨迹
   if (G.live){
     trail.push(st[0], st[1], st[2]);
-    if (trail.length > 400*3) trail.splice(0, trail.length-400*3);
+    // 只保留最近一拍：超过约 1.6s 的点直接丢掉（默认每次击球已清空）
+    const cap = (UI.k_trail1 && UI.k_trail1.checked) ? 110*3 : 400*3;
+    if (trail.length > cap) trail.splice(0, trail.length-cap);
     lineTrail.set(trail);
     // 来球预测
     if (UI.k_in.checked){
@@ -2053,7 +2105,7 @@ const $ = id => document.getElementById(id);
 const UI = {};
 ['s_power','s_spin','s_side','s_time','s_hp','s_mu','s_grip','s_rest','s_assist','s_ai','s_stance','s_tilt','s_face']
   .forEach(k=>UI[k]=$(k));
-['k_comp','k_force','k_in','k_out','k_body','k_face','k_swing','k_autobest','k_autoserve'].forEach(k=>UI[k]=$(k));
+['k_comp','k_force','k_in','k_out','k_body','k_face','k_swing','k_autobest','k_autoserve','k_trail1'].forEach(k=>UI[k]=$(k));
 
 function bind(){
   const map = {
@@ -2079,6 +2131,7 @@ function bind(){
   // 击球定格 · 拍面微距
   $('b_grip_pen').onclick = ()=>{ setGrip('penhold');   toast('直拍握法','椭圆短柄 · 正手拍头朝外上 · 反手可横打'); };
   $('b_grip_shk').onclick = ()=>{ setGrip('shakehand'); toast('横拍握法','长柄 · 拍面更立'); };
+  $('b_autoall').onclick = ()=>setAuto(!G.auto);
   $('b_bh_rpb').onclick  = ()=>setBH('rpb');
   $('b_bh_push').onclick = ()=>setBH('push');
   $('b_frz').onclick    = ()=>setFrzMode(!G.frz.on);
@@ -2109,6 +2162,7 @@ function bind(){
   }
   syncFrzUI();
   setGrip(playerGrip);          // 初始化拍型与拍面可视化尺寸
+  setAuto(G.auto, true);        // 初始化自动/手动模式 UI
 }
 function syncLabels(){
   $('v_power').textContent = G.P.power + '%';
@@ -2119,7 +2173,7 @@ function syncLabels(){
   $('v_mu').textContent    = G.P.mu.toFixed(2);
   $('v_grip').textContent  = Math.round(G.P.grip*100) + '%';
   $('v_rest').textContent  = G.P.rest.toFixed(2);
-  $('v_assist').textContent= G.P.assist + '%';
+  $('v_assist').textContent = G.auto ? G.P.assist + '%' : '手动';
   $('v_ai').textContent    = G.P.ai + '%';
   const vs = $('v_stance'); if (vs) vs.textContent = ((G.stanceOff||0)*100).toFixed(0) + 'cm';
   const vt = $('v_tilt'); if (vt) vt.textContent = (G.P.tilt>0?'后仰+':G.P.tilt<0?'前倾-':'') + Math.abs(G.P.tilt).toFixed(0) + '°';
@@ -2340,7 +2394,8 @@ function updateFreezeHUD(){
     let m = '';
     if (sol.compensated) m += `<span class="warn">⚠ 已自动补偿驱动速度至 ${sol.drive.toFixed(1)} m/s（原 ${sol.drive0.toFixed(1)}）以保证落台。</span>`;
     if (f.autoInfo) m += (m?'<br>':'') + `自动求解 → 时机 <b>${f.autoInfo.tm>0?'+':''}${f.autoInfo.tm}ms</b> · 力度 <b>${f.autoInfo.pw}%</b> · 摩擦 <b>${f.autoInfo.sp}</b>`;
-    if (sol.faceOn) m += (m?'<br>':'') + `<span class="hl2">手动拍面：倾角 ${G.P.tilt>0?'+':''}${G.P.tilt}° · 转向 ${G.P.face>0?'+':''}${G.P.face}°</span>（<b>G</b> 归零 · <b>X</b> 重新求最优）`;
+    if (!G.auto) m = `<span class="warn">手动模式：出球方向 / 力度只由「拍面倾角 ${G.P.tilt>0?'+':''}${G.P.tilt}° · 转向 ${G.P.face>0?'+':''}${G.P.face}° · 力度 ${G.P.power}%」决定，系统不保证落台。</span>` + (m?'<br>':'') + m;
+    else if (sol.faceOn) m += (m?'<br>':'') + `<span class="hl2">手动拍面：倾角 ${G.P.tilt>0?'+':''}${G.P.tilt}° · 转向 ${G.P.face>0?'+':''}${G.P.face}°</span>（<b>G</b> 归零 · <b>X</b> 重新求最优）`;
     m += (m?'<br>':'') + '拖动左侧滑块（时机 / 力度 / 摩擦 / <b>拍面倾角 / 转向</b> / 落点）可实时重算出球线路；按「出球继续」或<b>空格</b>放出该球。';
     $('f_msg').innerHTML = m;
   } else {
@@ -2636,8 +2691,8 @@ function loop(now){
     if (mouseActive()){
       const mp = mouseToWorld();
       // 「自动迎球」= 系统自动迎球的权重（越大越自动；鼠标只叠加一个偏移）
-      let a = G.P.assist/100;
-      if (G.frz && G.frz.on) a = Math.max(a, 0.97);   // 定格模式：保证碰到球 → 必然触发定格
+      let a = G.auto ? G.P.assist/100 : 0;            // 手动模式：球拍完全跟随鼠标，不自动迎球
+      if (G.auto && G.frz && G.frz.on) a = Math.max(a, 0.97);   // 定格模式：保证碰到球 → 必然触发定格
       let ox = (mp[0]-tgt[0])*(1-a), oy = (mp[1]-tgt[1])*(1-a);
       if (a >= 0.5){                                   // 自动为主时，偏移限幅，保证碰得到球
         const m = Math.hypot(ox,oy), cap = 0.085;
