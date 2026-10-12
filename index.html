@@ -181,6 +181,10 @@
   <label class="chk"><input type="checkbox" id="k_swing" checked>显示挥拍轨迹线</label>
   <div class="note">正手：<b>拍头朝外侧上方</b>（拍柄斜向内侧下方），不是举着拍头笔直朝上；反手默认用<b>直拍横打</b>——手腕外展、<b>拍背朝前</b>击球（<b>B</b> 键切换横打 / 推挡）。球打到身体<b>非持拍侧</b>时会自动切成反手动作。<br><b>W / S</b> 手动调整站位：<b>S = 退台</b>，<b>W = 上步</b>（也可用上面的滑块）。系统会按来球深浅<b>自动退台</b>。</div>
 
+  <h3>技术 · 拍型（拍头朝向）<span class="tag" id="techTag">自动</span></h3>
+  <div class="btns" id="techbtns"></div>
+  <div class="note">拍型（拍头朝向 / 甩腕 / 手臂姿态）会<b>按来球与出球参数自动切换</b>：<b>搓球</b>＝拍头朝前、拍面后仰亮开；<b>弧圈</b>＝拍头朝外上、拍面前倾、甩腕薄摩擦；<b>攻球</b>＝拍头朝外上、略前倾；<b>扣杀</b>＝拍头高举下压；<b>推挡/挡球</b>＝拍头朝上、拍面立起。也可以手动锁定一种技术来观察。</div>
+
   <h3>击球定格 · 拍面微距 <span class="tag" id="frzTag">关</span></h3>
   <div class="btns">
     <button id="b_frz">定格模式：关</button>
@@ -260,6 +264,7 @@
   <h3>定格 · 拍面微距 <span class="tag" id="f_st">未启用</span></h3>
   <div class="kv"><span class="k">定格状态</span><span class="n" id="f_on">—</span></div>
   <div class="kv"><span class="k">手别 / 握拍</span><span class="n hl" id="f_hd">—</span></div>
+  <div class="kv"><span class="k">技术 / 拍型</span><span class="n hl2" id="f_tec">—</span></div>
   <div class="kv"><span class="k">拍面倾角 / 侧向</span><span class="n hl" id="f_face">—</span></div>
   <div class="kv"><span class="k">拍面法线 n</span><span class="n" id="f_nrm">—</span></div>
   <div class="kv"><span class="k">来球速度 / 入射角</span><span class="n" id="f_in">—</span></div>
@@ -582,8 +587,9 @@ function solveShot(c, side, target, P, allowComp, fast){
 /* ── 手动拍面微调 ───────────────────────────────────────────────────
    在自动解算出的方向上再叠加「倾角 tilt / 转向 face」，然后单独重解驱动速度，
    让你可以直观看到"拍面一变，出球线路怎么变"。                        */
-function solveDrive(c, side, target, P, yaw, loft, drive0, allowComp){
-  const [bTop, bSide] = brushOf(P);
+function solveDrive(c, side, target, P, yaw, loft, drive0, allowComp, brushOv){
+  let [bTop, bSide] = brushOf(P);
+  if (brushOv){ bTop = brushOv[0]; bSide = brushOv[1]; }
   const tryD = d => {
     const r = evalShot(c, side, yaw, loft, d, bTop, bSide, P);
     if (!r || !r.ev) return null;
@@ -605,18 +611,52 @@ function solveDrive(c, side, target, P, yaw, loft, drive0, allowComp){
   }
   return best ? { ...best, comp } : null;
 }
-function faceAdjust(c, sol, target, P, allowComp){
-  const tilt = (P.tilt||0)*Math.PI/180, face = (P.face||0)*Math.PI/180;
-  if (!sol || Math.abs(tilt)+Math.abs(face) < 0.006) return sol;
+/* 在「自动解算的拍面」上叠加两层偏置：
+   ① 技术拍型（自动）：搓球后仰亮拍 + 切下旋、弧圈/扣杀前倾压拍
+   ② 手动滑块（拍面倾角 / 转向）
+   叠加后重新二分驱动速度，仍然保证落台。 */
+function faceAdjust(c, sol, target, P, allowComp, opt){
+  if (!sol) return sol;
+  const tLoft = (opt && opt.loft) || 0, tYaw = (opt && opt.yaw) || 0;
+  const mTilt = (P.tilt||0)*Math.PI/180, mFace = (P.face||0)*Math.PI/180;
+  const brush = (opt && opt.brush) || null;
+  const manual = Math.abs(mTilt)+Math.abs(mFace) >= 0.006;
+  if (Math.abs(tLoft)+Math.abs(tYaw) < 0.006 && !manual && !brush) return sol;
   const yaw0  = Math.atan2(sol.n[0], -sol.n[2]);        // 玩家 side=-1，朝 -Z
   const loft0 = Math.asin(clamp(sol.n[1], -1, 1));
-  const yaw   = clamp(yaw0 + face, -1.00, 1.00);
-  const loft  = clamp(loft0 + tilt, -0.45, 1.00);
-  const q = solveDrive(c, -1, target, P, yaw, loft, sol.drive, allowComp);
-  if (!q) return sol;
+  const mk = (loftAdd, yawAdd, br)=>{
+    const yaw  = clamp(yaw0 + yawAdd, -1.00, 1.00);
+    const loft = clamp(loft0 + loftAdd, -0.45, 1.05);
+    const q = solveDrive(c, -1, target, P, yaw, loft, sol.drive, allowComp, br);
+    return q ? { q, yaw, loft } : null;
+  };
+  const lands = r => !!(r && r.q.r.ev && !r.q.r.ev.net && !r.q.r.ev.out && r.q.r.ev.landings.length);
+  const withTech = mk(mTilt + tLoft, mFace + tYaw, brush);
+  const noTech   = mk(mTilt, mFace, null);
+  // 技术偏置绝不允许破坏「保证落台」：落不了台就退回不带技术偏置的解
+  let use = withTech, techOn = !!((tLoft || brush) && withTech);
+  if (withTech && !lands(withTech)){ use = noTech || withTech; techOn = false; }
+  if (!use) use = noTech || withTech;
+  if (!use) return sol;
+  const { q, yaw, loft } = use;
   return { s:q.s, r:q.r, loft, yaw, drive:q.drive, n:q.r.n, vp:q.r.vp,
-           st:q.r.st, ev:q.r.ev, info:q.r.info, compensated:q.comp, faceOn:true,
+           st:q.r.st, ev:q.r.ev, info:q.r.info, compensated:q.comp, faceOn:manual,
+           tech: techOn ? (opt && opt.tech) : undefined, techManual: manual,
            drive0: sol.drive0 !== undefined ? sol.drive0 : sol.drive };
+}
+/* 当前这一拍的技术 → 解算用的拍面偏置（loft / brush） */
+function incomingTop(st){
+  const vh = Math.max(1e-6, Math.hypot(st[3], st[5]));
+  return (st[6]*st[5] - st[8]*st[3]) / vh;             // 来球上旋分量（正 = 上旋）
+}
+function techOpt(P, st, bh, c){
+  const key = strokeTech({ drive: -1.5 + clamp(P.power,0,100)/100*10,
+                           bTop: brushOf(P)[0], top: incomingTop(st),
+                           y: (c && c[1]) || 1.0, tz: Math.abs(G.target[1]), bh });
+  const T = TECH[key] || TECH.drive;
+  const [bT, bS] = brushOf(P);
+  return { tech:key, loft:T.loft || 0, yaw:0,
+           brush: (T.brush !== undefined && bT > T.brush) ? [T.brush, bS] : null };
 }
 /* 设置拍面微调（滑块 / Shift 拖动共用） */
 function setFace(tilt, face){
@@ -851,10 +891,63 @@ const PAD_POSE = {
   },
 };
 let playerBH = 'rpb';                 // 我的反手方式：rpb=直拍横打 / push=推挡
-function padPose(style, who, bh){
+
+/* ── 技术（拍型）表：不同技术的「拍头朝向 / 拍面 / 甩腕 / 手臂姿态」完全不同 ──
+   hu / ho / hf：拍头朝向 = 竖直 ↑ · 持拍侧外 ↔ · 身前 ↕ 三者的配比。
+     攻球 = 朝外上（ho 大）；搓球 = 朝前略上（hf 大）—— 即「拍头朝前搓球」。
+   pollFh / pollBh：肘部极向量 = 持拍侧 · 身前 · 上 的配比（决定肘抬多高、收多紧）。
+   wrist：甩腕幅度系数；swing：挥拍幅度系数。 */
+/* loft：该技术叠在解算拍面上的「后仰 / 前倾」偏置（rad）—— 搓球后仰亮拍、弧圈/扣杀前倾压拍。
+   brush：该技术要求的刷球量下限（负 = 下旋，搓球必须切出下旋）。 */
+const TECH = {
+  loop : { name:'弧圈', hu:0.30, ho:0.88, hf:0.18, wrist:1.30, swing:1.10, face:'前倾压拍',
+           loft:-0.10, pollFh:[1.05,-0.55,-0.75], pollBh:[0.10, 0.45,-0.70],
+           desc:'拍头朝外上 · 拍面前倾 · 甩腕薄摩擦' },
+  drive: { name:'攻球', hu:0.64, ho:0.76, hf:0.12, wrist:0.85, swing:0.90, face:'略前倾',
+           loft:-0.03, pollFh:[1.00,-0.35,-0.55], pollBh:[0.20, 0.60,-0.55],
+           desc:'拍头朝外上 · 拍面略前倾 · 撞击为主' },
+  smash: { name:'扣杀', hu:0.94, ho:0.46, hf:0.08, wrist:0.55, swing:1.25, face:'前倾下压',
+           loft:-0.20, pollFh:[0.85, 0.15,-0.25], pollBh:[0.30, 0.30,-0.35],
+           desc:'拍头高举 · 拍面前倾 · 加速下压' },
+  chop : { name:'搓球', hu:-0.30, ho:0.12, hf:1.00, wrist:0.16, swing:0.45, face:'后仰亮拍',
+           loft: 0.55, brush:-7, pollFh:[0.45, 0.85,-0.20], pollBh:[0.15, 0.80,-0.35],
+           desc:'拍头朝前下探到球底 · 拍面后仰亮开 · 手腕固定切薄' },
+  push : { name:'推挡', hu:0.96, ho:-0.20, hf:0.12, wrist:0.30, swing:0.40, face:'立拍',
+           loft: 0.08, pollFh:[0.30, 0.55,-0.45], pollBh:[0.25, 0.60,-0.50],
+           desc:'拍头朝上偏内 · 拍面立起 · 借力' },
+  block: { name:'挡球', hu:0.84, ho:-0.14, hf:0.22, wrist:0.25, swing:0.40, face:'立拍前倾',
+           loft: 0.02, pollFh:[0.40, 0.70,-0.35], pollBh:[0.30, 0.65,-0.45],
+           desc:'拍头朝上 · 拍面立 · 借力快挡' },
+};
+let techLock = '';                    // 手动锁定技术（'' = 自动）
+
+/* 自动判断这一拍是什么技术：看来球旋转、来球速度、击球点高度、驱动速度、摩擦量、落点深度 */
+function strokeTech(o){
+  if (techLock && TECH[techLock]) return techLock;
+  const drive = o.drive, spin = Math.abs(o.bTop || 0), top = o.top || 0;
+  const y = o.y, tz = Math.abs(o.tz || 0);
+  if (y < 1.10 && drive < 2.6 && tz < 1.10) return 'chop';     // 台内 / 近网 + 轻力量 = 搓（摆短）
+  if (drive < 2.8 && top < -6) return 'chop';                  // 来球下旋 + 轻力量 = 搓
+  if (drive < 4.2 && spin < 5.0) return o.bh ? 'push' : 'block';
+  if (drive > 7.0 && spin < 6.5) return 'smash';
+  if (spin >= 6.0) return 'loop';
+  return 'drive';
+}
+/* 拍头朝向（世界系）＝ 上*hu ＋ 持拍侧外*ho*(正手+1 / 反手-1) ＋ 身前*hf */
+function techHeadDir(F, R1, T, bh){
+  return vnorm(vadd(vadd([0, T.hu || 0, 0], vmul(R1, (T.ho || 0) * (bh ? -1 : 1))),
+                    vmul(F, T.hf || 0)));
+}
+function padPose(style, who, bh, techKey){
   const t = PAD_POSE[style] || PAD_POSE.penhold;
-  const key = bh ? (who === 'p' ? playerBH : 'rpb') : 'fh';
-  return t[key] || t.fh;
+  const base = t[bh ? (who === 'p' ? playerBH : 'rpb') : 'fh'] || t.fh;
+  const key = (techKey && TECH[techKey]) ? techKey : 'drive';
+  const T = TECH[key];
+  const flip = bh ? (style === 'penhold' ? playerBH === 'rpb' : true) : false;
+  const bhName = bh ? (style === 'penhold' ? (playerBH === 'rpb' ? '直拍横打' : '推挡') : '反手') : '正手';
+  return { roll: base.roll, flip, tech:key, techName:T.name, wrist:T.wrist, swing:T.swing,
+           face:T.face, hu:T.hu, ho:T.ho, hf:T.hf, poll: bh ? T.pollBh : T.pollFh,
+           label: (bh ? '反手' : '正手') + ' · ' + bhName, name: T.name };
 }
 /* 总开关：自动模式（自动迎球 + 参数自动最佳化） ↔ 手动模式（全靠自己） */
 let assistSaved = 88;
@@ -882,6 +975,21 @@ function setBH(m){
   if (typeof toast === 'function')
     toast(playerBH === 'rpb' ? '反手：直拍横打' : '反手：推挡',
           playerBH === 'rpb' ? '手腕外展 · 拍背朝前击球 · 拍头朝外' : '正面推挡 · 拍头朝上偏内');
+}
+const TECH_KEYS = ['', 'loop', 'drive', 'smash', 'chop', 'push'];
+function setTech(k){
+  techLock = (k && TECH[k]) ? k : '';
+  syncTechUI();
+  if (G.frz && G.frz.active && typeof frzResolve === 'function') frzResolve();   // 定格中立刻重画拍型
+  if (typeof toast === 'function')
+    toast(techLock ? '锁定拍型：' + TECH[techLock].name : '拍型：自动',
+          techLock ? TECH[techLock].desc : '按来球旋转 / 力度 / 摩擦自动切换技术');
+}
+function syncTechUI(){
+  const tb = document.getElementById('techbtns');
+  if (tb) Array.from(tb.children).forEach((b,i)=> b.classList.toggle('on', TECH_KEYS[i] === techLock));
+  const tag = document.getElementById('techTag');
+  if (tag) tag.textContent = techLock ? TECH[techLock].name : '自动';
 }
 function makePaddle(rubber, style){
   const S = PAD_GEO[style] || PAD_GEO.penhold;
@@ -1272,8 +1380,10 @@ function computePlan(){
   const P = paramObj();
   const cd = findContact(G.st, -1, G.target, P);
   if (!cd){ G.plan = null; return; }
+  const stX0 = (VIS.stance && isFinite(VIS.stance[0])) ? VIS.stance[0] : 0.30;
   const sol = G.auto
-    ? faceAdjust(cd.c, solveShot(cd.c, -1, G.target, P, G.comp), G.target, P, G.comp)
+    ? faceAdjust(cd.c, solveShot(cd.c, -1, G.target, P, G.comp), G.target, P, G.comp,
+                 techOpt(P, G.st, (cd.c[0] - stX0) < -0.06, cd.c))
     : manualPlan(cd.c, P);
   if (!sol){ G.plan = null; return; }
   G.plan = { c:cd.c, t:cd.t, t0:cd.t, born:performance.now(), ...sol,
@@ -1663,9 +1773,12 @@ function frzResolve(){
   f.timingClamp = t;
   f.c = Array.from(c);
   G.st[0] = c[0]; G.st[1] = c[1]; G.st[2] = c[2];   // 球跟随时机偏移后的接触点（拍面/分析点同步）
+  const stX0 = (VIS.stance && isFinite(VIS.stance[0])) ? VIS.stance[0] : 0.30;
+  const opt = techOpt(P, c, (c[0] - stX0) < -0.06, c);
   const sol = G.auto
-    ? faceAdjust(c, solveShot(c, -1, G.target, P, G.comp), G.target, P, G.comp)
+    ? faceAdjust(c, solveShot(c, -1, G.target, P, G.comp), G.target, P, G.comp, opt)
     : manualPlan(c, P);
+  f.tech = opt.tech;
   f.sol = sol;
   if (sol){
     f.evPath = predict(sol.r.st, 2.2, 1, true);
@@ -1855,36 +1968,65 @@ function updateCharacters(dt){
     const refX = (plan && anyLive && G.last !== who) ? plan.c[0] : pad.p[0];
     const lat  = (refX - goalX) * (who === 'p' ? 1 : -1);
     const bh   = lat < -0.06;
-    const pose = padPose(styleI, who, bh);
     const sw   = bh ? -1 : 1;                              // 反手时挥拍方向左右互换
-    if (who === 'p') G.padPoseP = { bh, pose, style:styleI };
+
+    // ── 技术 / 拍型（自动）：按来球旋转 + 出球参数切换。
+    //    例：轻力量 + 台内 / 来球下旋 → 搓球（拍头朝前、拍面后仰）；大摩擦 → 弧圈（拍头朝外上）
+    const vhL  = Math.max(1e-6, Math.hypot(st[3], st[5]));
+    const topS = (st[6]*st[5] - st[8]*st[3]) / vhL;        // 来球上旋分量（正 = 上旋）
+    const driveT = -1.5 + clamp(P.power,0,100)/100*10;   // 用滑块力度，避免"技术↔解算"互相震荡
+    const cyT  = (plan && anyLive && G.last !== who) ? plan.c[1] : pad.p[1];
+    const techKey = strokeTech({ drive:driveT, bTop:bT, top:topS, y:cyT,
+                                 tz:Math.abs(G.target[1]), bh });
+    const T    = TECH[techKey] || TECH.drive;
+    const headDir = techHeadDir(F, R1, T, bh);
+    const pose = padPose(styleI, who, bh, techKey);
+    if (who === 'p') G.padPoseP = { bh, pose, style:styleI, tech:techKey, headDir };
 
     // ── 转腰（拉拍蓄力 → 击球 → 随挥）；反手转腰方向相反
     const coilT = swingCoil(tc, rel, bh ? -1 : 1);
     charCoil[who] += (coilT - charCoil[who]) * Math.min(1, dt*11);
 
-    // ── 可视化球拍位姿（物理拍位始终是 pad.p，视觉在两次 Mary中间插值）
+    // ── 完整挥拍时间轴：预备 → 引拍 → 加速 → 触球 → 随挥 → 复位（不再是"粘着预测点不动"）
     let pos, nv = pad.n.slice();
-    if (tc !== null && tc > 0.015 && tc < 0.55 && plan){
-      const u = 1 - tc/0.55, k = Math.pow(u, 2.3);          // 加速切入
-      const amp = 0.10 + 0.32*clamp(P.power/100,0,1);
-      const start = vadd(vadd(pad.p.slice(), vmul(R1, amp*0.9*sw)), vmul(F, -amp*0.5));
-      start[1] -= 0.05 + 0.10*clamp(P.spin/100,0,1);
-      pos = vlerp(start, pad.p, k);
+    const clock = performance.now()/1000;
+    const sway  = Math.sin(clock*1.55 + (who==='p'?0:1.3))*0.020;   // 待机微动，避免僵硬
+    const base  = [goalX, 0, goalZ];
+    const idle  = vadd(vadd(base.slice(), vmul(R1, bh ? -0.17 : 0.25)), vmul(F, 0.20));
+    idle[1] = 0.95 + sway - 0.07*crouch;
+    if (plan && anyLive && G.last !== who){                          // 预备时提前朝来球方向让位
+      const toC = vnorm(vsub(plan.c, [goalX, 1.0, goalZ]));
+      idle[0] += toC[0]*0.10; idle[2] += toC[2]*0.10;
+    }
+    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.30)), vmul(F, 0.10))   // 横打：收到腹前偏非持拍侧
+                  : vadd(vadd(base.slice(), vmul(R1,  0.40)), vmul(F,-0.16));  // 正手：引到持拍侧后下方
+    bs[1] = (T.hf > 0.5 ? 1.02 : 0.80) - 0.06*crouch - (T.hf > 0.5 ? 0 : 0.16*clamp(P.spin/100,0,1));
+    const HITW = 0.46;                                     // 引拍 → 触球 的时长
+    const pwK  = clamp(P.power/100, 0, 1);
+    if (tc !== null){
+      const u = clamp((1.15 - tc)/0.70, 0, 1);             // 提前 1.15s 从预备位走向引拍位
+      const pre = vlerp(idle, bs, u*u*(3-2*u));
+      pos = tc < HITW ? vlerp(pre, pad.p.slice(), Math.pow(1 - tc/HITW, 1.8 + 1.7*pwK)) : pre;
     } else if (rel !== null && pad.hitPos){
-      const g  = Math.pow(clamp(rel/0.55,0,1), 0.55);       // 随挥展开
-      const bk = clamp((rel-0.55)/0.45, 0, 1);              // 复位收回
-      const ft = vadd(vadd(pad.hitPos.slice(), vmul(pad.hitN, 0.30*g)), vmul(R1, -0.34*g*sw));
-      ft[1] += 0.30*g;
-      pos = vlerp(vlerp(pad.p, ft, g), pad.p, bk);
-    } else pos = pad.p.slice();
+      const nH  = vnorm(pad.hitN && pad.hitN.length ? pad.hitN : nv);
+      const ft  = vadd(vadd(pad.hitPos.slice(), vmul(nH, 0.30*T.swing)), vmul(R1, -0.34*T.swing*sw));
+      ft[1] += 0.28*T.swing;
+      const g  = Math.pow(clamp(rel/0.55,0,1), 0.55);      // 随挥展开
+      const bk = clamp((rel-0.55)/0.50, 0, 1);             // 复位收回
+      pos = vlerp(vlerp(pad.hitPos.slice(), ft, g), idle, bk*bk*(3-2*bk));
+    } else pos = idle;
+    // 轻微软跟随（去掉抖动），但触球瞬间必须精确落在物理接触点上
+    if (pad.vpos && (tc === null || tc > 0.03)) pos = vlerp(pad.vpos, pos, Math.min(1, dt*22));
+    pad.vpos = pos.slice();
 
-    // ── 球拍朝向 = 局部 +Z 对齐法线；按握法叠加自然握持倾角 + 手腕甩动（视觉）
+    // ── 球拍朝向：法线 + 技术拍头方向（搓球朝前 / 攻球朝外上）+ 甩腕
     const nV = vnorm(nv);
-    // 甩腕：正手是内旋加速，反手（横打）是外展甩出 → 方向相反
+    const wk = T.wrist || 1;
     const snap0 = wristSnap(tc, rel, bT, bS);
-    const snap  = bh ? { spin:-snap0.spin, side:-snap0.side } : snap0;
-    const q = paddleQuat(nV, styleI, snap, 0.10*charCoil[who]*(bh?-1:1), { pose });
+    // 甩腕：正手是内旋加速，反手（横打）是外展甩出 → 方向相反
+    const snap  = bh ? { spin:-snap0.spin*wk, side:-snap0.side*wk }
+                     : { spin: snap0.spin*wk, side: snap0.side*wk };
+    const q = paddleQuat(nV, styleI, snap, 0.10*charCoil[who]*(bh?-1:1), { pose, headDir });
     if (who === 'p') VIS.wrist = snap;
 
     mesh.position.set(pos[0], pos[1], pos[2]);
@@ -2025,9 +2167,14 @@ function updateFreezeVisual(){
   // ── 球拍位姿：与实战一致（正手拍头朝外上 / 反手则翻拍面用拍背）
   const stX = (VIS.stance && isFinite(VIS.stance[0])) ? VIS.stance[0] : 0.30;
   const bhF = (c[0] - stX) < -0.06;
-  const poseF = padPose(padStyleOf('p'), 'p', bhF);
-  G.padPoseP = { bh:bhF, pose:poseF, style:padStyleOf('p') };
-  const q = paddleQuat(nV, padStyleOf('p'), null, 0, { pose: poseF });
+  // 技术 / 拍型：与实战同一套规则（轻力量+下旋/台内 → 搓球，拍头自动朝前）
+  const Pf = paramObj();
+  const optF = techOpt(Pf, c, bhF, c);                  // 与解算同一套规则
+  const techF = (sol && sol.tech) ? sol.tech : optF.tech;
+  const poseF = padPose(padStyleOf('p'), 'p', bhF, techF);
+  const headF = techHeadDir([0,0,-1], [1,0,0], TECH[techF] || TECH.drive, bhF);
+  G.padPoseP = { bh:bhF, pose:poseF, style:padStyleOf('p'), tech:techF, headDir:headF };
+  const q = paddleQuat(nV, padStyleOf('p'), null, 0, { pose: poseF, headDir: headF });
   pPad.position.set(padP[0], padP[1], padP[2]);
   pPad.quaternion.copy(q);
 
@@ -2134,6 +2281,18 @@ function bind(){
   $('b_autoall').onclick = ()=>setAuto(!G.auto);
   $('b_bh_rpb').onclick  = ()=>setBH('rpb');
   $('b_bh_push').onclick = ()=>setBH('push');
+  // 技术 / 拍型按钮（自动 或 手动锁定）
+  {
+    const tb = $('techbtns');
+    const keys = ['', 'loop', 'drive', 'smash', 'chop', 'push'];
+    keys.forEach(k=>{
+      const b = document.createElement('button');
+      b.textContent = k ? TECH[k].name : '自动';
+      b.onclick = ()=>setTech(k);
+      tb.appendChild(b);
+    });
+    syncTechUI();
+  }
   $('b_frz').onclick    = ()=>setFrzMode(!G.frz.on);
   $('b_frznow').onclick = ()=>frzNow();
   $('b_auto').onclick   = ()=>{ if (G.frz.active){ frzAuto(); toast('已求解最优', '时机 / 角度 / 力度已自动设置'); } };
@@ -2332,7 +2491,7 @@ function updateHUD(){
 }
 
 /* ── 击球定格 · 拍面微距的读数 ── */
-const FZ = ['f_on','f_hd','f_face','f_nrm','f_in','f_ax','f_w','f_wt','f_slip',
+const FZ = ['f_on','f_hd','f_tec','f_face','f_nrm','f_in','f_ax','f_w','f_wt','f_slip',
             'f_tm','f_ang','f_pw','f_out','f_lp','f_ok'];
 function updateFreezeHUD(){
   const f = G.frz, on = f && f.active;
@@ -2346,8 +2505,11 @@ function updateFreezeHUD(){
   const c = f.c, sol = f.sol;
   $('f_on').innerHTML = '<span class="go">接触瞬间已冻结 · 拍面微距</span>';
   const pp = G.padPoseP;
-  if (pp) $('f_hd').innerHTML = `<span class="hl">${pp.bh ? '反手' : '正手'}</span> · ` +
-    `${pp.pose.name}${pp.pose.flip ? ' <em>（拍背朝前）</em>' : ''}`;
+  if (pp) $('f_hd').innerHTML = `<span class="hl">${pp.pose.label}</span>` +
+    `${pp.pose.flip ? ' <em>（拍背朝前）</em>' : ''}`;
+  if (pp) $('f_tec').innerHTML = `<span class="hl2">${pp.pose.name}</span> · ` +
+    `${pp.pose.face} <em>${pp.pose.hf > 0.5 ? '拍头朝前' : (pp.pose.ho > 0 ? '拍头朝外上' : '拍头朝上')}</em>`;
+  else $('f_tec').textContent = '—';
   const n = sol ? sol.n : G.pp.n, nL = vlen(n) || 1;
   const tilt = Math.asin(clamp(n[1]/nL,-1,1))*180/Math.PI;
   const side = Math.atan2(n[0], Math.abs(n[2]))*180/Math.PI;
@@ -2392,6 +2554,13 @@ function updateFreezeHUD(){
       ' / ' + (f.ok ? '<span class="go">✔ 保证落台</span>' : '<span class="ng">✘ 无法保证</span>');
 
     let m = '';
+    if (sol.tech && TECH[sol.tech]){
+      const TK = TECH[sol.tech];
+      if (Math.abs(TK.loft || 0) > 0.02 || TK.brush !== undefined)
+        m += `<span class="hl2">拍型「${TK.name}」已自动应用：拍面${TK.loft>0?'后仰亮开':'前倾压拍'} ${(Math.abs(TK.loft||0)*180/Math.PI).toFixed(0)}°</span>` +
+             (TK.brush !== undefined ? ' · 切出下旋' : '') +
+             `（驱动速度已重新二分，仍保证落台）<br>`;
+    }
     if (sol.compensated) m += `<span class="warn">⚠ 已自动补偿驱动速度至 ${sol.drive.toFixed(1)} m/s（原 ${sol.drive0.toFixed(1)}）以保证落台。</span>`;
     if (f.autoInfo) m += (m?'<br>':'') + `自动求解 → 时机 <b>${f.autoInfo.tm>0?'+':''}${f.autoInfo.tm}ms</b> · 力度 <b>${f.autoInfo.pw}%</b> · 摩擦 <b>${f.autoInfo.sp}</b>`;
     if (!G.auto) m = `<span class="warn">手动模式：出球方向 / 力度只由「拍面倾角 ${G.P.tilt>0?'+':''}${G.P.tilt}° · 转向 ${G.P.face>0?'+':''}${G.P.face}° · 力度 ${G.P.power}%」决定，系统不保证落台。</span>` + (m?'<br>':'') + m;
@@ -2435,7 +2604,12 @@ function paddleQuat(nV, style, snap, extraRoll, opt){
   let rt = vcross([0,1,0], nV); if (vlen(rt) < 1e-3) rt = vcross([1,0,0], nV);
   rt = vnorm(rt);
   const up0 = vnorm(vcross(nV, rt));
-  const Y = vrotAxis(up0, nV, roll);                 // 拍头：朝外上
+  let Y = vrotAxis(up0, nV, roll);                   // 默认（兜底）：竖直向上绕法线转 roll
+  const hd = opt && opt.headDir;                     // 技术拍型：拍头朝指定方向（投影到拍面内）
+  if (hd){
+    const pr = vsub(hd, vmul(nV, hd[0]*nV[0] + hd[1]*nV[1] + hd[2]*nV[2]));
+    if (vlen(pr) > 0.22) Y = vnorm(pr);              // 与法线夹角足够大才用，否则回退 roll
+  }
   const Z = pose.flip ? vmul(nV, -1) : nV;           // 拍面正面：翻拍时朝自己
   const X = vnorm(vcross(Y, Z));
   const Yf = vnorm(vcross(Z, X));
@@ -2577,13 +2751,14 @@ function updateHuman(P, I, dt){
   const needXY = Math.hypot(grip[0]-P.stance[0], grip[2]-P.stance[1]);
   let lean = clamp(needXY*0.5, 0, 0.34);
   const toG = vnorm([grip[0]-P.stance[0], 0, grip[2]-P.stance[1]]);
-  const hipY = 0.93 - 0.19*I.crouch;
+  const hipY = 0.93 - 0.19*I.crouch + Math.sin(performance.now()/1000*1.6)*0.007;  // 含重心微起伏
   let hip = [P.stance[0]+toG[0]*lean, hipY, P.stance[1]+toG[2]*lean];
 
   const coil = I.coil;
   const Rp = vrotY(R1, coil), Fp = vrotY(F, coil);
+  const chestOf = h => vadd(vadd(h, [0, 0.33, 0]), vmul(Rp, 0.05*coil*(I.bh?-1:1))); // 转腰时躯干侧倾
   for (let it=0; it<3; it++){
-    const chest  = vadd(hip, [0, 0.33, 0]);
+    const chest  = chestOf(hip);
     const shBase = vadd(chest, [0, 0.09, 0]);
     const sh     = vadd(shBase, vmul(Rp, 0.185));
     const d = vlen(vsub(wrist, sh));
@@ -2591,7 +2766,7 @@ function updateHuman(P, I, dt){
     lean = Math.min(0.55, lean + (d-0.52)*0.9);
     hip  = [P.stance[0]+toG[0]*lean, hipY, P.stance[1]+toG[2]*lean];
   }
-  const chest  = vadd(hip, [0, 0.33, 0]);
+  const chest  = chestOf(hip);
   const shBase = vadd(chest, [0, 0.09, 0]);
   const shR = vadd(shBase, vmul(Rp,  0.185));
   const shL = vadd(shBase, vmul(Rp, -0.185));
@@ -2606,9 +2781,9 @@ function updateHuman(P, I, dt){
 
   // 持拍手（右手或左手）
   const ri = P.rightHanded ? 0 : 1, li = 1-ri;
-  // 肘部极向量：正手肘在右后下方（拉拍蓄力）；反手横打肘收在身前偏下
-  const pollA = I.bh ? vnorm(vadd(vadd(vmul(Rp,0.35), vmul(Fp,0.60)), [0,-0.60,0]))
-                     : vnorm(vadd(vadd(vmul(Rp,0.95), vmul(Fp,-0.40)), [0,-0.55,0]));
+  // 肘部极向量：由「技术拍型」决定（正手攻肘在持拍侧后下；直拍横打肘收在身前；搓球肘前伸）
+  const pl = (I.pose && I.pose.poll) || [0.95,-0.40,-0.55];
+  const pollA = vnorm(vadd(vadd(vmul(Rp, pl[0]), vmul(Fp, pl[1])), [0, pl[2], 0]));
   const elbow = ik2(shR, wrist, 0.295, 0.255, pollA);
   const eL = P.armU[ri]; setBone(eL, shR, elbow);
   setBone(P.armF[ri], elbow, wrist);
@@ -2768,6 +2943,8 @@ UI.s_rest.value = Math.round(G.P.rest*100); UI.s_assist.value = G.P.assist;
 window.__PONG = G;   // 调试句柄
 window.__PONG.CAM = CAM; window.__PONG.camera = camera;
 window.__PONG.VIS = VIS; window.__PONG.padOf = padStyleOf;
+window.__PONG.TECH = TECH; window.__PONG.strokeTech = strokeTech;
+window.__PONG.techHeadDir = techHeadDir; window.__PONG.setTech = setTech;
 window.__PONG.padMesh = ()=>pPad;                            // 便于调试/外部脚本
 requestAnimationFrame(loop);
 </script>
