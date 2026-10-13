@@ -212,6 +212,12 @@
   <label class="chk"><input type="checkbox" id="k_swing" checked>显示挥拍轨迹线</label>
   <div class="note">正手：<b>拍头朝外侧上方</b>（拍柄斜向内侧下方），不是举着拍头笔直朝上；反手默认用<b>直拍横打</b>——手腕外展、<b>拍背朝前</b>击球（<b>B</b> 键切换横打 / 推挡）。球打到身体<b>非持拍侧</b>时会自动切成反手动作。<br><b>W / S</b> 手动调整站位：<b>S = 退台</b>，<b>W = 上步</b>（也可用上面的滑块）。系统会按来球深浅<b>自动退台</b>。</div>
 
+  <h3>弧圈对拉 · 退台加质量</h3>
+  <div class="row wide"><label>对拉退台</label><input type="range" id="s_clRetreat" min="0" max="100" value="100"><span class="v" id="v_clRetreat"></span></div>
+  <div class="row wide"><label>加质量强度</label><input type="range" id="s_clBoost" min="0" max="100" value="100"><span class="v" id="v_clBoost"></span></div>
+  <div class="kv"><span class="k">对拉状态</span><span class="n hl" id="r_cl">—</span></div>
+  <div class="note">相持中双方连续弧圈时自动进入<b>对拉模式</b>：双方逐步退至中远台，站位随板数后退。<b>加质量</b>：从第3板起逐步提升力量和旋转（每板 +3% 力量 / +4% 旋转，有上限），模拟实战中对拉越拉越转越冲。两个滑块可分别控制退台和加质量的强度（0 = 关闭对应效果）。</div>
+
   <h3>发球 <span class="tag" id="serveTag">随机变化</span></h3>
   <div class="btns" id="servebtns"></div>
   <div class="note">按真实比赛的上手：<b>下旋</b>＝短而不出台、二跳回旋；<b>反手</b>＝侧下旋·中路；<b>逆旋转</b>＝侧旋从另一侧来；<b>勾手</b>＝手腕勾甩·反向侧拐；<b>急长上旋</b>＝顶底线，逼对手退台。选「<b>随机</b>」则每球变化。发球第一落点必须落<b>本方半台</b>、第二落点落<b>对方半台</b>，擦网判重发。</div>
@@ -1191,12 +1197,93 @@ function strokeTech(o){
   // 高球优先处理：高点 + 出台 → 扣杀；高点 + 近网 → 吸短（摆短）
   if (y > 1.45 && tz > 0.85) return 'smash';
   if (y > 1.20 && tz <= 0.85) return 'chop';
+  // ── 弧圈对拉模式：相持中双方连续弧圈 → 锁定弧圈技术，不会退化成挡/推
+  if (G.counterLoop && G.counterLoop.active){
+    // 高球仍允许扣杀，其余一律弧圈
+    if (y <= 1.45) return 'loop';
+  }
   if (short && y < 1.10 && drive < 3.0) return 'chop';   // 台内 + 轻力量 = 搓（摆短）
   if (drive < 2.6 && top < -10 && !short) return 'loop';  // 出台下旋 + 轻力量 = 弧圈拉起（不要搓成短球）
   if (drive < 4.2 && spin < 5.0) return o.bh ? 'push' : 'block';
   if (drive > 7.0 && spin < 6.5) return 'smash';
   if (spin >= 6.0) return 'loop';
   return 'drive';
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   弧圈对拉机制：双方退台对拉 + 后续几板加质量
+   ══════════════════════════════════════════════════════════════════ */
+/* 判断来球是否具备弧圈特征（强上旋 + 出台），用于检测对拉条件 */
+function isLoopBall(st){
+  const v = Math.hypot(st[3], st[5]);
+  if (v < 2.0) return false;                            // 球速太低不算
+  const vh = Math.max(1e-6, Math.hypot(st[3], st[5]));
+  const topS = (st[6]*st[5] - st[8]*st[3]) / vh;       // 上旋分量
+  return topS > 30;                                     // 强上旋 → 弧圈球
+}
+
+/* 每拍击球后更新对拉状态：检测双方是否连续打出弧圈 */
+function updateCounterLoop(who, techKey){
+  const cl = G.counterLoop;
+  if (!cl) return;
+  // 记录最近一拍技术
+  if (who === 'p') cl.techP = techKey || '';
+  else             cl.techA = techKey || '';
+  // 只在相持阶段（ptHits >= 3）才检测对拉
+  if (G.ptHits < 3){ cl.active = false; cl.hits = 0; return; }
+  // 双方最近一拍都是弧圈 → 激活对拉
+  const bothLoop = (cl.techP === 'loop' || cl.techP === 'lob') &&
+                   (cl.techA === 'loop' || cl.techA === 'lob');
+  if (bothLoop){
+    if (!cl.active){ cl.active = true; cl.hits = 2; }    // 首次进入对拉
+    else cl.hits++;                                       // 继续对拉，累计板数
+  } else {
+    // 一方打出非弧圈（如扣杀高球）→ 退出对拉；但刚进入相持的前两板允许非弧圈
+    if (cl.active && cl.hits >= 4) cl.active = false;    // 已对拉多板后变线 → 退出
+    // 尚未进入对拉（相持前两板不是弧圈）→ 继续观察
+  }
+}
+
+/* 对拉期间的自动退台偏移（米）：随板数逐步退到中远台
+   hits=2: 退 0.30m（中台）；hits=4: 退 0.55m（中远台）；hits=6+: 退 0.75m（远台） */
+function counterLoopRetreat(who){
+  const cl = G.counterLoop;
+  if (!cl || !cl.active) return 0;
+  // 启用开关：用户可通过滑块关闭自动退台
+  if (typeof G.P.clRetreat !== 'undefined' && G.P.clRetreat === 0) return 0;
+  const retreatScale = (G.P.clRetreat !== undefined) ? G.P.clRetreat / 100 : 1.0;
+  // 渐进退台：0.15m/板，上限 0.80m
+  const retreat = clamp((cl.hits - 1) * 0.15, 0, 0.80) * retreatScale;
+  return retreat;
+}
+
+/* 对拉期间的加质量增量：随板数逐步提升力量和旋转
+   返回 { powerBoost, spinBoost }（叠加在基础参数之上）
+   - 第3板起开始加质量（前两板是建立对拉节奏）
+   - 力量每板 +3%，旋转每板 +4%，有上限 */
+function counterLoopQualityBoost(){
+  const cl = G.counterLoop;
+  if (!cl || !cl.active) return { powerBoost:0, spinBoost:0 };
+  const enableBoost = (G.P.clBoost !== undefined) ? G.P.clBoost / 100 : 1.0;
+  if (enableBoost <= 0) return { powerBoost:0, spinBoost:0 };
+  // 从第3板起开始加质量
+  const boardsAfterWarmup = Math.max(0, cl.hits - 2);
+  const powerBoost = clamp(boardsAfterWarmup * 3, 0, 25) * enableBoost;   // 力量最多 +25%
+  const spinBoost  = clamp(boardsAfterWarmup * 4, 0, 30) * enableBoost;   // 旋转最多 +30%
+  return { powerBoost, spinBoost };
+}
+
+/* 对拉期间 AI 的落点策略：更深更偏（逼对手跑动）
+   返回 [tx偏移, tz偏移] */
+function counterLoopAiTarget(){
+  const cl = G.counterLoop;
+  if (!cl || !cl.active) return [0, 0];
+  const boardsAfterWarmup = Math.max(0, cl.hits - 2);
+  // 落点越来越深（顶底线），偏移量随板数增大
+  const depthBoost = clamp(boardsAfterWarmup * 0.06, 0, 0.30);
+  // 横向偏移（大角度调动对手）随板数微增
+  const sideVariance = clamp(boardsAfterWarmup * 0.04, 0, 0.20);
+  return [sideVariance * (Math.random() - 0.5) * 2, depthBoost];
 }
 /* 拍头朝向（世界系）＝ 上*hu ＋ 持拍侧外*ho*(正手+1 / 反手-1) ＋ 身前*hf */
 function techHeadDir(F, R1, T, bh){
@@ -1451,6 +1538,12 @@ const G = {
   last:'', bounces:0, needOwn:false,
   ptHits:0,                          // 本分出手次数：发球=1，接发球=2，之后=相持
   stage:'',                          // 阶段：serve | receive | rally
+  /* ── 弧圈对拉（双方退台对拉 + 后续加质量）──
+     counterLoop.active: 当前是否处于对拉状态
+     counterLoop.hits:   对拉期间累计击球板数（从第3板相持开始计）
+     counterLoop.techP:  玩家最近一拍技术
+     counterLoop.techA:  AI 最近一拍技术 */
+  counterLoop:{ active:false, hits:0, techP:'', techA:'' },
   serveType:'', lastServe:null,      // 本次发球类型
   recvKey:'', recvName:'',           // 本次接发球手段（'' = 自动）—— 兼容旧引用
   recvP:{ key:'', name:'' },         // 玩家接发球手段（每分独立）
@@ -1462,7 +1555,7 @@ const G = {
   target:[0, -0.95],                   // 玩家落点目标 [x,z]
   auto:true,           // 总开关：自动迎球 + 击球参数自动最佳化（false = 全手动）
   P:{ power:35, spin:45, side:0, timing:0, hp:1.02, mu:0.45, grip:0.78, rest:0.82, assist:88, ai:60,
-      tilt:0, face:0, roll:0 },                  // tilt/face：拍面手动微调（度）；roll：拍柄方向（绕拍面法线转，只改拍头/拍柄朝向）
+      tilt:0, face:0, roll:0, clRetreat:100, clBoost:100 },  // clRetreat=对拉退台强度, clBoost=加质量强度
   Pk:{ power:35, spin:45, side:0, timing:0, hp:1.02, mu:0.45, grip:0.78, rest:0.82 },
   comp:true,
   pp:{ p:[0,0.98,1.72], n:[0,0,-1], cd:0, swing:0, swingDir:null },
@@ -1564,6 +1657,7 @@ function resetBall(serverSide){
   G.live = false; G.phase = 'ready'; G.plan = null; G.aiPlan = null; G.bounces = 0; G.last = '';
   G.ptHits = 0; G.stage = ''; G.recvKey = ''; G.recvName = '';
   G.recvP = { key:'', name:'' }; G.recvA = { key:'', name:'' };   // 每分独立复位
+  G.counterLoop = { active:false, hits:0, techP:'', techA:'' };   // 对拉状态复位
   // 注意：G.chain 不在 resetBall 里清空，而是在下一次 doServe 时清空，
   // 这样得分后的暂停期间仍能看到上一分的完整技术链路。
   G.pp.swing = 0; G.ap.swing = 0; G.aiLock = null; G.netTouch = false;
@@ -1593,6 +1687,7 @@ function doServe(){
   G.serveType = key;                              // 记录本次发球类型（供接发球判断）
   G.lastServe = { key, name: sd.name, side };
   G.chain = [];                                   // 得分后开新球 → 清空技术链路
+  G.counterLoop = { active:false, hits:0, techP:'', techA:'' };   // 对拉状态复位
   G.ptHits = 0; G.stage = 'serve';                // 先设阶段，applyShot 里才能正确记录发球这一拍
   applyShot(s.r.st, who, s.r.n, s.r.vp);
   G.needOwn = true; G.bounces = 0; G.last = who;
@@ -1648,6 +1743,12 @@ function applyShot(st, who, n, vp){
   G.ptHits++;                                     // 出手计数：2 = 接发球，≥3 = 相持
   const stageNow = G.stage;
   if (G.ptHits >= 2){ G.stage = 'rally'; G.recvKey = ''; G.recvName = ''; }
+
+  // ── 弧圈对拉：更新对拉状态（检测连续弧圈 → 激活退台对拉 + 加质量）──
+  {
+    const tech = who === 'p' ? (G.plan && G.plan.tech) : (G.aiPlan && G.aiPlan.tech);
+    updateCounterLoop(who, tech || '');
+  }
 
   // ── 技术名称链路：每拍记录「谁 + 阶段 + 技术名」，得分后 resetBall 清空 ──
   if (!G.chain) G.chain = [];
@@ -1726,16 +1827,22 @@ function serveLet(){
     if (again) doServe(); else { G.letRun = 0; tip('多次擦网，请按空格重发'); }
   }, 950);
 }
-/* ── 玩家参数对象 ── */
+/* ── 玩家参数对象（含对拉加质量） ── */
 function paramObj(){
   const P = G.P;
-  return { power:P.power, spin:P.spin, side:P.side, timing:P.timing, hp:P.hp,
-           mu:P.mu, grip:P.grip, rest:P.rest, tilt:P.tilt||0, face:P.face||0 };
+  const boost = counterLoopQualityBoost();
+  return { power:clamp(P.power + boost.powerBoost, 0, 100),
+            spin:clamp(P.spin + boost.spinBoost, -100, 100),
+            side:P.side, timing:P.timing, hp:P.hp,
+            mu:P.mu, grip:P.grip, rest:P.rest, tilt:P.tilt||0, face:P.face||0 };
 }
 function aiParamObj(){
   const d = G.P.ai/100;
-  return { power:35+50*d, spin:30+55*d, side:0, timing:0, hp:1.0,
-           mu:0.55+0.3*d, grip:0.6+0.3*d, rest:0.78+0.1*d };
+  const boost = counterLoopQualityBoost();
+  return { power:clamp(35+50*d + boost.powerBoost, 0, 100),
+            spin:clamp(30+55*d + boost.spinBoost, -100, 100),
+            side:0, timing:0, hp:1.0,
+            mu:0.55+0.3*d, grip:0.6+0.3*d, rest:0.78+0.1*d };
 }
 
 /* ── 正手 / 反手 判定 + 横向站位（"让位"到正确的击球区）──────────────
@@ -1790,6 +1897,12 @@ function computePlan(){
   let ss = strokeSide(cd.c[0], 'p', stX0, cd.t);
   let bh = ss.bh;
   let target = G.target.slice();
+  // ── 对拉期间：玩家落点也加深（压底线，配合加质量）
+  if (G.counterLoop && G.counterLoop.active && G.auto){
+    const boardsAfterWarmup = Math.max(0, G.counterLoop.hits - 2);
+    const depthPush = clamp(boardsAfterWarmup * 0.05, 0, 0.25);
+    target[1] = clamp(target[1] - depthPush, -1.37, -0.55);
+  }
   // ── 接发球阶段：先定手段，再按手段取默认落点（摆短 / 拧长 / 挑斜线 / 高调顶底线）
   if (G.auto && isReceive()){
     if (!G.recvP.key){
@@ -1875,6 +1988,10 @@ function aiThink(dt){
     }
     let tx = clamp(-G.pp.p[0]*0.72 + (Math.random()-0.5)*(1.4-1.0*d), -0.62, 0.62);
     let tz = 0.85 + Math.random()*0.38;     // 回球略深，避免过短
+    // ── 对拉期间：AI 落点更深更偏（逼对手跑动 + 加质量）
+    const clAdj = counterLoopAiTarget();
+    tx = clamp(tx + clAdj[0], -0.85, 0.85);
+    tz = clamp(tz + clAdj[1], 0.70, 1.30);
     // AI 正/反手：AI 朝 +Z ⇒ 持拍侧在 -X。旧式用「球拍位置」比较，方向写反了，
     // 会把持拍侧的球判成反手（于是正手球用反手拍型/握法去打，看起来很别扭）。
     // 改用统一的「击球区」判据：与玩家同一套 strokeSide。
@@ -2391,7 +2508,12 @@ const swingBuf = { p:[], a:[] };
 const swingLineP = mkLine(0xff6272, 46, false, 0.9);      // 玩家挥拍轨迹
 const swingLineA = mkLine(0x62a8ff, 46, false, 0.9);      // AI 挥拍轨迹
 
-function stanceBias(who){ return who==='p' ? (G.stanceOff||0) : 0; }
+function stanceBias(who){
+  // 手动站位偏移 + 对拉自动退台
+  const manual = who==='p' ? (G.stanceOff||0) : 0;
+  const retreat = counterLoopRetreat(who);
+  return manual + retreat;
+}
 
 function updateCharacters(dt){
   const show = UI ? UI.k_body.checked : true;
@@ -2558,7 +2680,7 @@ function updateCharacters(dt){
     const anchor = updateHuman(H, {
       facing:F, stance:[goalX, goalZ], speed: 2.4 + (plan?2.6:0),
       pos, n:nv, crouch, coil: charCoil[who], look: lookTarget,
-      style: styleI, pose, bh, sw, who,
+      style: styleI, pose, headDir, bh, sw, who,
       extraRoll: 0.10*charCoil[who]*(bh?-1:1),          // 握法 → 拍柄朝向跟着转
       userRoll: uRoll                                   // 手动「拍柄方向」→ 手腕/握把一起转
     }, dt);
@@ -2770,7 +2892,7 @@ function updateFreezeVisual(){
    ══════════════════════════════════════════════════════════════════ */
 const $ = id => document.getElementById(id);
 const UI = {};
-['s_power','s_spin','s_side','s_time','s_hp','s_mu','s_grip','s_rest','s_assist','s_ai','s_stance','s_tilt','s_face','s_roll']
+['s_power','s_spin','s_side','s_time','s_hp','s_mu','s_grip','s_rest','s_assist','s_ai','s_stance','s_tilt','s_face','s_roll','s_clRetreat','s_clBoost']
   .forEach(k=>UI[k]=$(k));
 ['k_comp','k_force','k_in','k_out','k_body','k_face','k_swing','k_autobest','k_autoserve','k_trail1'].forEach(k=>UI[k]=$(k));
 
@@ -2781,6 +2903,7 @@ function bind(){
     s_grip: v=>G.P.grip=+v/100, s_rest: v=>G.P.rest=+v/100, s_assist: v=>G.P.assist=+v,
     s_ai: v=>G.P.ai=+v, s_stance: v=>G.stanceOff=(+v)/100,
     s_tilt: v=>G.P.tilt=+v, s_face: v=>G.P.face=+v,
+    s_clRetreat: v=>G.P.clRetreat=+v, s_clBoost: v=>G.P.clBoost=+v,
   };
   // 拍柄方向：绕拍面法线自转 —— 只改变拍头/拍柄朝向，不改变拍面法线与出球，无需重解
   UI.s_roll.addEventListener('input', ()=>setRoll(+UI.s_roll.value));
@@ -2883,6 +3006,8 @@ function syncLabels(){
   const vt = $('v_tilt'); if (vt) vt.textContent = (G.P.tilt>0?'后仰+':G.P.tilt<0?'前倾-':'') + Math.abs(G.P.tilt).toFixed(0) + '°';
   const vf = $('v_face'); if (vf) vf.textContent = (G.P.face>0?'右转+':G.P.face<0?'左转-':'') + Math.abs(G.P.face).toFixed(0) + '°';
   const vr = $('v_roll'); if (vr) vr.textContent = (G.P.roll>0?'+':'') + Math.round(G.P.roll) + '°';
+  const vcr = $('v_clRetreat'); if (vcr) vcr.textContent = (G.P.clRetreat||100) + '%';
+  const vcb = $('v_clBoost'); if (vcb) vcb.textContent = (G.P.clBoost||100) + '%';
 }
 function syncTarget(){
   const z = G.target[1], x = G.target[0];
@@ -2967,18 +3092,33 @@ function updateHUD(){
   $('r_fa').innerHTML  = f1(Math.hypot(ax,ay,az).toFixed(1),'m/s²');
   $('r_fsum').textContent = `Σ ${Math.hypot(ax,ay,az).toFixed(1)} m/s²`;
 
-  // 回合阶段 / 本板技术
+  // 回合阶段 / 本板技术 / 对拉状态
   {
     const stageTxt = { serve:'发球', receive:'接发球', rally:'相持' };
     const st = G.stage || (G.phase === 'play' ? '' : '');
     const who = G.last === 'p' ? '我方' : G.last === 'a' ? '对手' : '';
+    // 对拉时阶段标注"对拉"
+    const cl = G.counterLoop;
+    const stageLabel = (cl && cl.active && st === 'rally') ? '对拉' : (stageTxt[st] || '—');
     $('r_stage').textContent = st
-      ? (stageTxt[st] || '—') + (who ? ' · ' + who + ((st==='serve')?'发球':'回球') : '')
+      ? stageLabel + (who ? ' · ' + who + ((st==='serve')?'发球':'回球') : '')
       : (G.phase === 'ready' ? '待发球' : '—');
     const tk = (G.plan && G.plan.tech) ? G.plan.tech : (G.recvP.key || G.recvKey || '');
     $('r_tech').textContent = tk && TECH[tk] ? TECH[tk].name
       : (techLock && TECH[techLock]) ? TECH[techLock].name
       : (G.lastServe && st === 'serve') ? G.lastServe.name + '（发球）' : '—';
+    // 对拉状态指示
+    const clEl = $('r_cl');
+    if (clEl){
+      if (cl && cl.active){
+        const boost = counterLoopQualityBoost();
+        clEl.innerHTML = `<span class="go">对拉中</span> · ${cl.hits}板` +
+          (boost.powerBoost > 0 || boost.spinBoost > 0
+            ? ` · <span class="hl">+力${boost.powerBoost.toFixed(0)}% +旋${boost.spinBoost.toFixed(0)}%</span>` : '');
+      } else {
+        clEl.textContent = '—';
+      }
+    }
   }
   // 解算输出
   const p = G.plan;
@@ -3208,14 +3348,27 @@ function paddleQuat(nV, style, snap, extraRoll, opt){
   }
   return q;
 }
-/* 握把方向（拍头 → 拍柄）：拍柄沿 -Y，手腕再往下 4.7cm */
+/* 握把方向（拍头 → 拍柄）：拍柄沿 -Y，手腕再往下 4.7cm。
+   必须与 paddleQuat 用同一套 Y 轴计算（同样的 headDir 覆盖 + userRoll），
+   否则渲染出的拍柄朝向与手部握把方向错位 → 手没握在拍柄上、拍型看着不对。 */
 function paddleGripUp(nV, style, extraRoll, opt){
   const pose = (opt && opt.pose) || padPose(style, 'p', false);
+  const roll = pose.roll + (extraRoll || 0);
+  const Z    = pose.flip ? vmul(nV, -1) : nV;
   let rt = vcross([0,1,0], nV); if (vlen(rt) < 1e-3) rt = vcross([1,0,0], nV);
   rt = vnorm(rt);
-  const upV = vnorm(vcross(nV, rt));
-  const Z   = pose.flip ? vmul(nV, -1) : nV;         // 与 paddleQuat 同轴，保证拍柄跟着拍面一起转
-  return vrotAxis(upV, Z, pose.roll + (extraRoll || 0) + ((opt && opt.userRoll) || 0));
+  const up0 = vnorm(vcross(nV, rt));
+  let Y = vrotAxis(up0, Z, roll);                    // 与 paddleQuat 同基准：先按握持 roll 绕法线转
+  const hd = opt && opt.headDir;                     // 技术拍型：拍头朝指定方向（投影到拍面内）
+  if (hd){
+    const pr = vsub(hd, vmul(nV, hd[0]*nV[0] + hd[1]*nV[1] + hd[2]*nV[2]));
+    if (vlen(pr) > 0.22) Y = vnorm(pr);              // 与 paddleQuat 一致：headDir 优先
+  }
+  const uRoll = (opt && opt.userRoll) || 0;          // 手动「拍柄方向」：绕拍面法线再转
+  if (uRoll) Y = vrotAxis(Y, Z, uRoll);
+  // 返回与 paddleQuat 中 Yf（局部 +Y 的世界方向）完全一致 → 握把/拍柄严格对齐
+  const X = vnorm(vcross(Y, Z));
+  return vnorm(vcross(Z, X));
 }
 const vlerp = (a,b,k)=>[a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k];
 
@@ -3447,7 +3600,7 @@ function updateHuman(P, I, dt){
   const upV = vnorm(vcross(nV, rt));
   // 握把 / 手腕：沿"拍柄方向"（upV 绕法线转过握持 roll），直拍柄短、横拍柄长
   const Sg  = PAD_GEO[I.style] || PAD_GEO.penhold;
-  const gUp = paddleGripUp(nV, I.style, I.extraRoll || 0, { pose: I.pose, userRoll: I.userRoll || 0 });
+  const gUp = paddleGripUp(nV, I.style, I.extraRoll || 0, { pose: I.pose, headDir: I.headDir, userRoll: I.userRoll || 0 });
   const grip  = vadd(I.pos, vmul(gUp, -Sg.gripD));
   const wrist = vadd(I.pos, vmul(gUp, -(Sg.gripD + 0.047)));
 
@@ -3685,6 +3838,7 @@ UI.s_mu.value = Math.round(G.P.mu*100); UI.s_grip.value = Math.round(G.P.grip*10
 UI.s_rest.value = Math.round(G.P.rest*100); UI.s_assist.value = G.P.assist;
   UI.s_ai.value = G.P.ai;
   UI.s_stance.value = Math.round((G.stanceOff||0)*100);
+  UI.s_clRetreat.value = G.P.clRetreat; UI.s_clBoost.value = G.P.clBoost;
   syncLabels();
   setCam(0);
   resetBall('p');
