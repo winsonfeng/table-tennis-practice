@@ -6,8 +6,9 @@
 <title>乒乓球 3D 物理模拟 · 落点反解引擎</title>
 <style>
   :root{
-    --bg:#0a0e14; --panel:rgba(18,24,34,.82); --line:rgba(255,255,255,.10);
-    --txt:#dfe7f2; --dim:#8b9ab0; --acc:#ff9d3c; --acc2:#3fd0c9; --ok:#4ade80; --bad:#f87171; --blue:#60a5fa;
+    --bg:#7ec8f2; --panel:rgba(255,252,243,.95); --line:#e0c9a6;
+    --txt:#43301f; --dim:#9a8467; --acc:#ff7a2f; --acc2:#22b8cf; --ok:#3fae44; --bad:#ef4444; --blue:#3b82f6;
+    --ink:#2f2314;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
@@ -15,112 +16,141 @@
   #c{position:fixed;inset:0}
   canvas{display:block}
 
-  .panel{position:fixed;background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-    border:1px solid var(--line);border-radius:12px;padding:12px 13px;box-shadow:0 10px 34px rgba(0,0,0,.45)}
+  /* ── 卡通面板：厚描边 + 立体底影 ── */
+  .panel{position:fixed;background:var(--panel);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    border:3px solid var(--ink);border-radius:20px;padding:13px 15px;
+    box-shadow:0 5px 0 rgba(47,35,20,.55), 0 14px 30px rgba(20,40,60,.28)}
+  .panel::-webkit-scrollbar{width:9px}
+  .panel::-webkit-scrollbar-thumb{background:#f0b95f;border-radius:6px;border:2px solid var(--ink)}
 
-  /* ── 顶栏 ── */
-  #top{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:18px;
-    padding:8px 18px;z-index:5;white-space:nowrap}
-  #top .t{font-size:15px;font-weight:700;letter-spacing:.5px}
-  #top .t small{display:block;font-size:10px;color:var(--dim);font-weight:400;letter-spacing:0}
-  #sc{display:flex;align-items:center;gap:10px;font-variant-numeric:tabular-nums}
-  #sc b{font-size:22px;line-height:1}
-  #sc .u{color:var(--acc2)} #sc .a{color:var(--acc)}
-  #sc .sep{color:var(--dim);font-size:18px}
-  #rv{font-size:11px;color:var(--dim);border-left:1px solid var(--line);padding-left:12px}
-  #rv b{color:var(--txt);font-size:13px}
+  /* ── 顶栏 · 卡通计分板 ── */
+  #top{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:16px;
+    padding:8px 20px;z-index:5;white-space:nowrap;
+    background:linear-gradient(180deg,#fffdf6,#ffeccb);border:3px solid var(--ink);border-radius:22px;
+    box-shadow:0 5px 0 rgba(47,35,20,.55), 0 12px 26px rgba(20,40,60,.25)}
+  #top .t{font-size:15px;font-weight:800;letter-spacing:.5px;color:var(--txt)}
+  #top .t small{display:block;font-size:10px;color:var(--dim);font-weight:600;letter-spacing:0}
+  #sc{display:flex;align-items:center;gap:9px;font-variant-numeric:tabular-nums}
+  #sc b{font-size:23px;line-height:1;font-weight:900;color:#fff;background:var(--ink);
+    border-radius:11px;padding:3px 9px;min-width:34px;text-align:center;
+    box-shadow:inset 0 -3px 0 rgba(255,255,255,.18)}
+  #sc .u{color:#2b7fd4;font-weight:900} #sc .a{color:#e0453a;font-weight:900}
+  #sc .sep{color:var(--ink);font-size:20px;font-weight:900}
+  #rv{font-size:11px;color:#7a6544;border-left:3px dotted #e0c9a6;padding-left:12px;font-weight:800}
+  #rv b{color:#b8560f;font-size:14px;font-weight:900}
 
-  /* ── 左panel ── */
-  #left{top:78px;left:12px;width:268px;max-height:calc(100vh - 200px);overflow-y:auto;z-index:5}
-  #right{top:78px;right:12px;width:296px;max-height:calc(100vh - 96px);overflow-y:auto;z-index:5}
-  .panel::-webkit-scrollbar{width:5px} .panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:3px}
+  #left{top:88px;left:12px;width:274px;max-height:calc(100vh - 230px);overflow-y:auto;z-index:5}
+  #right{top:88px;right:12px;width:300px;max-height:calc(100vh - 112px);overflow-y:auto;z-index:5}
 
-  h3{font-size:11px;font-weight:700;color:var(--dim);letter-spacing:1.4px;margin:2px 0 9px;
-    text-transform:uppercase;border-bottom:1px solid var(--line);padding-bottom:6px}
-  h3:not(:first-child){margin-top:14px}
-  h3 span{float:right;color:var(--acc);letter-spacing:0;text-transform:none;font-weight:600}
+  /* ── 卡通小标题：橙色胶囊 ── */
+  h3{font-size:11.5px;font-weight:900;color:#fff;letter-spacing:1.2px;margin:4px 0 10px;
+    background:linear-gradient(180deg,#ffbb50,#ff8c1a);border:2px solid var(--ink);border-radius:999px;
+    padding:5px 12px;box-shadow:0 3px 0 rgba(47,35,20,.45);text-shadow:0 1px 0 rgba(120,60,0,.35)}
+  h3:not(:first-child){margin-top:16px}
+  h3 span{float:right;color:#fff;font-weight:900;letter-spacing:0;text-shadow:0 1px 0 rgba(120,60,0,.35)}
 
-  .row{display:flex;align-items:center;gap:8px;margin:7px 0}
-  .row label{flex:0 0 76px;font-size:11.5px;color:var(--dim)}
-  .row input[type=range]{flex:1;-webkit-appearance:none;height:3px;background:rgba(255,255,255,.16);border-radius:2px;outline:none}
-  .row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
-    background:var(--acc);cursor:pointer;border:2px solid #121820;box-shadow:0 0 0 1px var(--acc)}
-  .row .v{flex:0 0 46px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums;color:var(--txt)}
-  .row.wide label{flex:0 0 92px}
+  /* ── 滑块：粗轨道 + 大圆钮 ── */
+  .row{display:flex;align-items:center;gap:8px;margin:8px 0}
+  .row label{flex:0 0 78px;font-size:11.5px;color:#6b5638;font-weight:800}
+  .row input[type=range]{flex:1;-webkit-appearance:none;height:11px;background:#f7e7ca;
+    border:2px solid var(--ink);border-radius:999px;outline:none;box-shadow:inset 0 2px 0 rgba(120,80,20,.10)}
+  .row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;height:19px;border-radius:50%;
+    background:radial-gradient(circle at 34% 30%,#ffe08a,#ff7a2f);cursor:pointer;border:2px solid var(--ink);
+    box-shadow:0 2px 0 rgba(47,35,20,.45)}
+  .row .v{flex:0 0 50px;text-align:right;font-size:11px;font-weight:900;font-variant-numeric:tabular-nums;color:#b8560f;
+    background:#fff3dd;border:2px solid var(--ink);border-radius:9px;padding:1px 4px}
+  .row.wide label{flex:0 0 96px}
 
-  .btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-  button{background:rgba(255,255,255,.07);border:1px solid var(--line);color:var(--txt);border-radius:7px;
-    padding:6px 10px;font-size:11.5px;cursor:pointer;font-family:inherit;transition:.15s}
-  button:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.24)}
-  button.pri{background:linear-gradient(180deg,#ff9d3c,#f07818);border-color:#ff9d3c;color:#231503;font-weight:700}
-  .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-  .vgrid button{padding:7px 6px;font-size:11px;line-height:1.3}
-  .vgrid button.on{border-color:var(--acc);background:rgba(255,157,60,.18);color:var(--acc);font-weight:700}
-  #vname{float:right;color:var(--acc);font-weight:700;letter-spacing:0;text-transform:none;font-size:11px}
-  .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-  .vgrid button{padding:7px 6px;font-size:11px;line-height:1.3}
-  .vgrid button.on{border-color:var(--acc);background:rgba(255,157,60,.18);color:var(--acc);font-weight:700}
-  #vname{float:right;color:var(--acc);font-weight:700;letter-spacing:0;text-transform:none;font-size:11px}
-  .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-  .vgrid button{padding:6px 5px;font-size:11px;line-height:1.3}
-  .vgrid button.on{border-color:var(--acc);background:rgba(255,157,60,.16);color:var(--acc);font-weight:700}
-  #vname{color:var(--acc);font-weight:700;letter-spacing:.5px;text-transform:none}
-  button.pri:hover{filter:brightness(1.1)}
-  button.on{background:rgba(63,208,201,.18);border-color:var(--acc2);color:var(--acc2)}
-  button:disabled{opacity:.38;cursor:default}
-  button:disabled:hover{background:rgba(255,255,255,.07);border-color:var(--line)}
-  .tag{float:right;font-weight:700;letter-spacing:0;text-transform:none;color:var(--acc)}
-  .tag.hot{color:var(--ok)}
-
-  .grid9{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:7px}
-  .grid9 button{padding:7px 0;font-size:11px}
-
-  .chk{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dim);margin:6px 0;cursor:pointer}
-  .chk input{accent-color:var(--acc);width:13px;height:13px;cursor:pointer}
+  /* ── 卡通按钮：糖果立体 ── */
+  .btns{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+  button{background:linear-gradient(180deg,#ffffff,#f3e5ce);border:2px solid var(--ink);color:#4a3623;border-radius:13px;
+    padding:6px 11px;font-size:11.5px;font-weight:800;cursor:pointer;font-family:inherit;transition:.12s;
+    box-shadow:0 3px 0 rgba(47,35,20,.45)}
+  button:hover{transform:translateY(-1px);box-shadow:0 4px 0 rgba(47,35,20,.45)}
+  button:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(47,35,20,.45)}
+  button.pri{background:linear-gradient(180deg,#ffd94f,#ffa415);border-color:var(--ink);color:#3a2405}
+  button.pri:hover{filter:brightness(1.07)}
+  .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .vgrid button{padding:8px 6px;font-size:11px;line-height:1.3}
+  .vgrid button.on,.grid9 button.on,button.on{
+    background:linear-gradient(180deg,#ff9f45,#f2610c);border-color:var(--ink);color:#fff;font-weight:900;
+    text-shadow:0 1px 0 rgba(47,35,20,.45)}
+  #vname{color:#b8560f;font-weight:900;letter-spacing:0;font-size:11px}
+  button:disabled{opacity:.45;cursor:default;transform:none;box-shadow:0 3px 0 rgba(47,35,20,.28)}
+  button:disabled:hover{transform:none;box-shadow:0 3px 0 rgba(47,35,20,.28)}
+  .tag{float:right;font-weight:900;letter-spacing:0;color:#fff}
+  .tag.hot{color:#fff45a}
+  .grid9{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+  .grid9 button{padding:8px 0;font-size:11px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6b5638;font-weight:800;margin:7px 0;cursor:pointer}
+  .chk input{accent-color:#ff7a2f;width:15px;height:15px;cursor:pointer}
 
   /* ── 右panel读数 ── */
-  .kv{display:flex;justify-content:space-between;gap:8px;padding:3.5px 0;font-size:11.5px;
-    border-bottom:1px dashed rgba(255,255,255,.055)}
+  .kv{display:flex;justify-content:space-between;gap:8px;padding:4px 0;font-size:11.5px;font-weight:800;
+    border-bottom:2px dotted #e8d3b0}
   .kv:last-child{border-bottom:0}
-  .kv .k{color:var(--dim);white-space:nowrap}
-  .kv .n{font-variant-numeric:tabular-nums;text-align:right}
-  .kv .n em{font-style:normal;color:var(--dim);font-size:10px;margin-left:2px}
-  .hl{color:var(--acc)} .hl2{color:var(--acc2)} .go{color:var(--ok)} .ng{color:var(--bad)}
-  .bar{position:relative;height:4px;background:rgba(255,255,255,.10);border-radius:2px;margin:5px 0 3px;overflow:hidden}
-  .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--acc);transition:width .1s}
-  .note{font-size:10.5px;color:var(--dim);margin-top:6px;line-height:1.55}
-  .warn{color:var(--bad)}
+  .kv .k{color:#7a6544;white-space:nowrap}
+  .kv .n{font-variant-numeric:tabular-nums;text-align:right;color:#3a2c1e;font-weight:900}
+  .kv .n em{font-style:normal;color:#9a8467;font-size:10px;margin-left:2px;font-weight:600}
+  .hl{color:#e0450f;font-weight:900} .hl2{color:#0e8fa8;font-weight:900}
+  .go{color:#2f9e34;font-weight:900} .ng{color:#e0342a;font-weight:900}
+  .bar{position:relative;height:12px;background:#f7e7ca;border:2px solid var(--ink);border-radius:999px;
+    margin:6px 0 4px;overflow:hidden}
+  .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;
+    background:linear-gradient(90deg,#ffd94f,#ff7a2f);transition:width .1s}
+  .note{font-size:10.5px;color:#8a734f;margin-top:8px;line-height:1.6;background:#fff7e6;
+    border:2px dashed #e8d3b0;border-radius:11px;padding:7px 9px}
+  .note b{color:#b8560f}
+  .warn{color:#e0342a}
 
   /* ── 底部时机条 ── */
-  #bot{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:5;padding:9px 14px;min-width:390px}
-  #bot .lab{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);margin-bottom:5px}
-  #tb{position:relative;height:12px;background:rgba(255,255,255,.07);border-radius:6px;overflow:hidden;
-    border:1px solid rgba(255,255,255,.08)}
+  #bot{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:5;padding:10px 16px;min-width:400px}
+  #bot .lab{display:flex;justify-content:space-between;font-size:10.5px;color:#7a6544;font-weight:900;margin-bottom:6px}
+  #tb{position:relative;height:17px;background:#f7e7ca;border:2px solid var(--ink);border-radius:999px;overflow:hidden}
   #tbz{position:absolute;left:50%;top:0;bottom:0;width:16%;transform:translateX(-50%);
-    background:rgba(74,222,128,.22);border-left:1px solid rgba(74,222,128,.5);border-right:1px solid rgba(74,222,128,.5)}
-  #tbp{position:absolute;top:-2px;width:3px;height:16px;background:#fff;border-radius:2px;box-shadow:0 0 7px #fff;left:100%}
-  #tbp.go{background:var(--ok);box-shadow:0 0 9px var(--ok)}
-  #tip{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);font-size:11.5px;color:var(--dim);
-    text-align:center;z-index:4;pointer-events:none;text-shadow:0 2px 8px #000}
+    background:rgba(63,174,68,.38);border-left:2px solid #2f9e34;border-right:2px solid #2f9e34}
+  #tbp{position:absolute;top:-2px;width:7px;height:21px;background:#fff;border:2px solid var(--ink);
+    border-radius:999px;left:100%}
+  #tbp.go{background:#43d94f}
+  #tip{position:fixed;bottom:104px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:800;color:#fff;
+    text-align:center;z-index:4;pointer-events:none;background:rgba(47,35,20,.84);border:2px solid #14100a;
+    border-radius:999px;padding:5px 14px;box-shadow:0 4px 0 rgba(20,16,10,.40)}
+  #tip b{color:#ffd34d}
 
-  #frzbar{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:12;pointer-events:none;
-    display:flex;align-items:center;gap:9px;padding:7px 15px;border-radius:999px;font-size:12.5px;font-weight:700;
-    background:rgba(10,14,20,.82);border:1px solid rgba(63,208,201,.55);color:var(--acc2);
-    box-shadow:0 6px 24px rgba(0,0,0,.45);backdrop-filter:blur(6px)}
-  #frzbar.hot{color:#ffd479;border-color:rgba(255,212,121,.7)}
-  #frzbar .dot{width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 9px currentColor}
-  #frzbar .dot{animation:bl 1.1s infinite}
+  /* ── 定格提示 ── */
+  #frzbar{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:12;pointer-events:none;
+    display:flex;align-items:center;gap:9px;padding:7px 16px;border-radius:999px;font-size:12.5px;font-weight:900;
+    background:linear-gradient(180deg,#9ae9ff,#37bfe0);border:3px solid var(--ink);color:#083b4a;
+    box-shadow:0 5px 0 rgba(47,35,20,.5), 0 10px 22px rgba(20,40,60,.30)}
+  #frzbar.hot{background:linear-gradient(180deg,#ffe477,#ffb300);color:#4a2c00}
+  #frzbar .dot{width:9px;height:9px;border-radius:50%;background:#fff;border:2px solid var(--ink);
+    box-shadow:0 0 0 rgba(0,0,0,0);animation:bl 1.1s infinite}
   @keyframes bl{0%,100%{opacity:1}50%{opacity:.25}}
-  #frzbar em{font-style:normal;font-weight:400;color:var(--dim);font-size:11.5px}
+  #frzbar em{font-style:normal;font-weight:800;color:rgba(0,0,0,.55);font-size:11.5px}
+
+  /* ── 技术名称链路条：己方/对手分色 ── */
+  .chainbar{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:11;pointer-events:none;
+    display:flex;align-items:center;gap:7px;max-width:92vw;padding:8px 16px;border-radius:999px;
+    font-size:13px;font-weight:900;background:linear-gradient(180deg,#fffdf6,#ffeccb);border:3px solid var(--ink);
+    box-shadow:0 5px 0 rgba(47,35,20,.5), 0 10px 22px rgba(20,40,60,.28);flex-wrap:wrap;justify-content:center}
+  .chainbar .lbl{color:#fff;font-weight:900;font-size:10.5px;letter-spacing:1px;
+    background:var(--ink);border-radius:999px;padding:3px 10px}
+  .chainbar .ck{display:inline-flex;align-items:center;padding:2px 10px;border-radius:999px;border:2px solid var(--ink)}
+  .chainbar .ck.p{background:#ffe3ad;color:#a34a00}          /* 己方（你）技术 */
+  .chainbar .ck.a{background:#c6f0f7;color:#0b6f80}          /* 对手（AI）技术 */
+  .chainbar .arrow{color:#2f2314;margin:0 1px;font-weight:900}
 
   #toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.9);z-index:20;
-    font-size:26px;font-weight:800;letter-spacing:1px;opacity:0;pointer-events:none;transition:.28s;text-shadow:0 4px 22px #000}
+    font-size:34px;font-weight:900;letter-spacing:2px;opacity:0;pointer-events:none;transition:.28s;color:#fff;
+    -webkit-text-stroke:3px var(--ink);text-shadow:0 6px 0 rgba(47,35,20,.45), 0 12px 30px rgba(0,0,0,.30)}
   #toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
-  #toast small{display:block;font-size:12px;font-weight:400;color:var(--dim);letter-spacing:0;margin-top:4px}
+  #toast small{display:block;font-size:13px;font-weight:900;color:#fff;-webkit-text-stroke:2px var(--ink);
+    letter-spacing:0;margin-top:6px}
 
   #err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;
-    background:#0a0e14;z-index:99;text-align:center;padding:30px;gap:10px}
-  #err b{color:var(--bad);font-size:16px}
+    background:var(--bg);z-index:99;text-align:center;padding:30px;gap:10px}
+  #err b{color:#e0342a;font-size:17px;font-weight:900}
+  #err span{color:#3a2c1e;font-weight:700}
   .hidden{display:none!important}
 </style>
 </head>
@@ -150,7 +180,8 @@
   <div class="row"><label>击球高度</label><input type="range" id="s_hp" min="80" max="132" value="102"><span class="v" id="v_hp"></span></div>
   <div class="row"><label>拍面倾角</label><input type="range" id="s_tilt" min="-25" max="25" value="0"><span class="v" id="v_tilt"></span></div>
   <div class="row"><label>拍面转向</label><input type="range" id="s_face" min="-25" max="25" value="0"><span class="v" id="v_face"></span></div>
-  <div class="note">拍面在<b>自动解算</b>的角度上再叠加：<b>倾角</b> 负=前倾压拍、正=后仰亮拍；<b>转向</b> 负=左转、正=右转。定格中还可直接 <b>Shift + 拖动</b> 调拍面（上下=倾角、左右=转向）。</div>
+  <div class="row wide"><label>拍柄方向</label><input type="range" id="s_roll" min="-180" max="180" step="1" value="0"><span class="v" id="v_roll"></span></div>
+  <div class="note">拍面是三轴可调的：<b>倾角</b>（负=前倾压拍 / 正=后仰亮拍）、<b>转向</b>（负=左转 / 正=右转）、<b>拍柄方向</b>（绕拍面法线自转，改变<b>拍头 / 拍柄朝向</b>，如朝上 · 朝外 · 朝前；只改姿态，不改变拍面法线与出球）。<br>定格中用 <b>Shift + 拖动</b> 调倾角/转向、<b>Shift + 滚轮</b> 转拍柄方向；<b>G</b> 一键归零。</div>
 
   <h3>球拍物理属性</h3>
   <div class="row wide"><label>胶皮摩擦 μ</label><input type="range" id="s_mu" min="5" max="60" value="45"><span class="v" id="v_mu"></span></div>
@@ -180,6 +211,14 @@
   </div>
   <label class="chk"><input type="checkbox" id="k_swing" checked>显示挥拍轨迹线</label>
   <div class="note">正手：<b>拍头朝外侧上方</b>（拍柄斜向内侧下方），不是举着拍头笔直朝上；反手默认用<b>直拍横打</b>——手腕外展、<b>拍背朝前</b>击球（<b>B</b> 键切换横打 / 推挡）。球打到身体<b>非持拍侧</b>时会自动切成反手动作。<br><b>W / S</b> 手动调整站位：<b>S = 退台</b>，<b>W = 上步</b>（也可用上面的滑块）。系统会按来球深浅<b>自动退台</b>。</div>
+
+  <h3>发球 <span class="tag" id="serveTag">随机变化</span></h3>
+  <div class="btns" id="servebtns"></div>
+  <div class="note">按真实比赛的上手：<b>下旋</b>＝短而不出台、二跳回旋；<b>反手</b>＝侧下旋·中路；<b>逆旋转</b>＝侧旋从另一侧来；<b>勾手</b>＝手腕勾甩·反向侧拐；<b>急长上旋</b>＝顶底线，逼对手退台。选「<b>随机</b>」则每球变化。发球第一落点必须落<b>本方半台</b>、第二落点落<b>对方半台</b>，擦网判重发。</div>
+
+  <h3>接发球手段 <span class="tag" id="recvTag">自动</span></h3>
+  <div class="btns" id="recvbtns"></div>
+  <div class="note">按来球<b>旋转 / 长短 / 高低</b>自动选择：<b>搓球</b>＝摆短控网（强下旋近网）<b>拧拉</b>＝台内手腕外展包裹，回<b>斜线上旋</b>；<b>挑打</b>＝不转/弱旋转出台时快挑压中路；<b>高调</b>＝强下旋出台时高弧线挂起来的<b>充分上旋</b>。也可以手动锁定一种手段。接发球必须等球在<b>本方半台落台</b>后才能回击，回到台上的第三板起进入<b>相持</b>。</div>
 
   <h3>技术 · 拍型（拍头朝向）<span class="tag" id="techTag">自动</span></h3>
   <div class="btns" id="techbtns"></div>
@@ -229,6 +268,8 @@
   <div class="kv"><span class="k">合加速度</span><span class="n" id="r_fa">—</span></div>
 
   <h3>解算输出 · 击球点</h3>
+  <div class="kv"><span class="k">回合阶段</span><span class="n hl" id="r_stage">—</span></div>
+  <div class="kv"><span class="k">本板技术</span><span class="n hl2" id="r_tech">—</span></div>
   <div class="kv"><span class="k">最佳击球点</span><span class="n hl2" id="r_cp">—</span></div>
   <div class="kv"><span class="k">距网 / 高度</span><span class="n" id="r_cph">—</span></div>
   <div class="kv"><span class="k">击球方向</span><span class="n hl" id="r_dir">—</span></div>
@@ -266,6 +307,7 @@
   <div class="kv"><span class="k">手别 / 握拍</span><span class="n hl" id="f_hd">—</span></div>
   <div class="kv"><span class="k">技术 / 拍型</span><span class="n hl2" id="f_tec">—</span></div>
   <div class="kv"><span class="k">拍面倾角 / 侧向</span><span class="n hl" id="f_face">—</span></div>
+  <div class="kv"><span class="k">拍头 / 拍柄朝向</span><span class="n hl2" id="f_grip">—</span></div>
   <div class="kv"><span class="k">拍面法线 n</span><span class="n" id="f_nrm">—</span></div>
   <div class="kv"><span class="k">来球速度 / 入射角</span><span class="n" id="f_in">—</span></div>
   <div class="kv"><span class="k">来球旋转轴 ω̂</span><span class="n hl2" id="f_ax">—</span></div>
@@ -282,6 +324,7 @@
 </div>
 
 <div id="frzbar" class="hidden"><span class="dot"></span><span id="frzbarTxt"></span></div>
+<div id="chainbar" class="chainbar"><span class="lbl">技术链路</span><span id="chainTxt">—</span></div>
 <div id="tip">左/右键<b>拖动</b>旋转视角 · 滚轮缩放 · <b>Q/E</b> 环绕 · <b>F</b> 切视角 · 左键<b>点击</b>台面指定落点 · <b>Z</b> 击球定格 · 定格中 <b>Shift+拖动</b> 调拍面 · <b>G</b> 拍面归零 · <b>B</b> 反手横打/推挡 · <b>M</b> 自动/手动</div>
 
 <div id="bot" class="panel">
@@ -514,6 +557,58 @@ function scoreShot(ev, target, side){
   return s;
 }
 
+/* 回球「质量」评分：在落点误差之上，额外惩罚高弧线 / 大过网余量，奖励压底线。
+   定格模式的一键最优之所以质量高，是因为它会搜索力度；自动模式以前只按滑块力度
+   打，力度不足就只能高吊（弧顶 2m+），这里用质量分把强驱动（平快）挑出来。
+   c = 击球点：弧线高度以「击球点高度」为参照，从高点扣杀不算高球。 */
+function shotQuality(ev, target, side, c){
+  const s0 = scoreShot(ev, target, side);
+  if (!ev || !ev.landings || !ev.landings.length) return s0 + 100;
+  if (s0 >= 50) return s0;                                  // 下网 / 出界：硬失败
+  const L = ev.landings[0];
+  if (sgn(L[1]) !== side) return s0 + 100;                  // 没打到对方半台
+  let q = s0;
+  const ref = Math.max(1.05, c ? c[1]*0.98 : 1.05);         // 允许的弧顶基准
+  const over = ev.apex - ref - 0.12;
+  if (over > 0) q += over * 9;                              // 强烈抑制吊高球
+  const clr = ev.netClear === null ? 0 : ev.netClear;
+  if (clr > 0.24) q += (clr - 0.24) * 12;                   // 偏好贴网弧线
+  if (clr < 0.05) q += (0.05 - clr) * 16;                   // 过网余量
+  q += (1 - Math.min(1, Math.abs(L[1]) / 1.37)) * 0.5;      // 落点越深越好
+  return q;
+}
+
+/* 自动模式专用：不迷信滑块力度，而是在"能落台的前提下尽量平快"的区间里挑最优驱动。
+   从强到弱扫描，命中即收（通常第 1 档就够），全部失败才退回原解算。 */
+function solveAuto(c, side, target, P){
+  const d0 = -1.5 + P.power/100*10;
+  const cands = [];
+  // 摩擦必须与驱动成正比：切向速度若与驱动无关，弱驱动会被"抬"成近垂直发射（冲天炮），
+  // 强驱动又直接飞出界 —— 只有按固定"刷球角"给摩擦，才能解出平快球。
+  const bOld = Math.max(1e-6, P.spin/100*12);
+  const th   = clamp(P.spin, 0, 100)/100 * (Math.PI/4);      // 刷球角 0~45°
+  const Pfor = d => {
+    const k = clamp(d*Math.tan(th)/bOld, 0.25, 2.2);
+    return Object.assign({}, P, { power:(d+1.5)*10,
+      spin: clamp(P.spin*k, -100, 100), side: clamp(P.side*k, -100, 100) });
+  };
+  for (const d of [d0+6, d0+4.5, d0+3.0, d0+1.5, d0, d0-1.5, d0-3.0]){
+    if (d < 0.9) continue;
+    const r = solveShot(c, side, target, Pfor(d), false);
+    if (!r || !r.r || !r.r.ev) continue;
+    const q = shotQuality(r.r.ev, target, side, c);
+    cands.push({ q, r, d });
+    if (q < 0.06) break;                                    // 落点准 + 弧线平 → 收工
+  }
+  // 全部候选都出界/下网 → 退回"带力度补偿"的原解算，别硬打
+  const best0 = cands.length ? cands.slice().sort((a, b) => a.q - b.q)[0] : null;
+  const fb = (!best0 || best0.r.r.ev.out || best0.r.r.ev.net)
+    ? solveShot(c, side, target, P, true) : null;
+  if (fb && fb.r && fb.r.ev && !fb.r.ev.out && !fb.r.ev.net) return fb;
+  if (!best0) return fb || solveShot(c, side, target, P, true);
+  return Object.assign({}, best0.r, { drive:best0.d, drive0:d0, auto:true });
+}
+
 /* ── 落点反解：在给定击球点，求 (偏航, 仰角[, 力度]) 使球落在 target ── */
 function solveShot(c, side, target, P, allowComp, fast){
   const drive0 = -1.5 + P.power/100*10;
@@ -532,8 +627,9 @@ function solveShot(c, side, target, P, allowComp, fast){
         yaw += clamp((target[0]-r.ev.landings[0][0])/dist, -0.12, 0.12);
       }
       if (!r) continue;
-      const s = scoreShot(r.ev, target, side);
-      if (!best || s < best.s) best = { s, r, loft, yaw, drive, n:r.n, vp:r.vp };
+      // 用「质量分」而不是纯落点误差：同样能落台的仰角里，挑弧线更平的那个
+      const s = shotQuality(r.ev, target, side, c);
+      if (!best || s < best.s) best = { s, qs:scoreShot(r.ev, target, side), r, loft, yaw, drive, n:r.n, vp:r.vp };
     }
     if (!best) return null;
     // 阶段2：牛顿式精修 —— yaw 控横向，loft 控纵深（步长按飞行距离归一化，避免振荡）
@@ -545,8 +641,8 @@ function solveShot(c, side, target, P, allowComp, fast){
       const L  = r.ev.landings[0];
       const dx = target[0] - L[0];                                  // 横向误差
       const de = (L[1]-c[2])*side - (target[1]-c[2])*side;          // 纵深误差(>0=飞过头)
-      const s  = scoreShot(r.ev, target, side);
-      if (s < best.s) best = { s, r, loft, yaw, drive, n:r.n, vp:r.vp };
+      const s  = shotQuality(r.ev, target, side, c);
+      if (s < best.s) best = { s, qs:scoreShot(r.ev, target, side), r, loft, yaw, drive, n:r.n, vp:r.vp };
       if (Math.abs(dx) < 0.015 && Math.abs(de) < 0.03) break;
       yaw  += clamp(dx/dist*0.9, -0.10, 0.10);
       loft  = clamp(loft + clamp(-de*0.05, -0.035, 0.035), -0.25, 0.60);
@@ -557,13 +653,15 @@ function solveShot(c, side, target, P, allowComp, fast){
   // fast 模式：同步粗搜三档力度，用于在多个候选击球点之间做快速比较
   if (fast){
     let b = null;
-    for (const d of [drive0-3, drive0-0.8, drive0+1.5, drive0+4]){ const r = refine(d); if (r && (!b || r.s < b.s)) b = r; }
+    // 力度档位整体偏强：弱驱动只能高吊，这里让快速比较也能挑到平快解
+    for (const d of [drive0-1.5, drive0+1.0, drive0+3.0, drive0+5.0]){ const r = refine(d); if (r && (!b || r.s < b.s)) b = r; }
     return b;
   }
 
   let best = refine(drive0);
   let comp = false;
-  if (allowComp && (!best || best.s > 0.10)){
+  // 触发补偿看「落点误差」（qs）；质量分含弧线惩罚，恒 >0.1 会白白多跑十倍解算
+  if (allowComp && (!best || best.qs > 0.10)){
     // 力度不足/过大 → 在 [0.4x, 2.2x] 内二分驱动速度补偿
     let lo = drive0-3.5, hi = drive0+5.0, b2 = null;
     for (let i=0;i<9;i++){
@@ -593,7 +691,8 @@ function solveDrive(c, side, target, P, yaw, loft, drive0, allowComp, brushOv){
   const tryD = d => {
     const r = evalShot(c, side, yaw, loft, d, bTop, bSide, P);
     if (!r || !r.ev) return null;
-    return { s: scoreShot(r.ev, target, side), r, drive:d };
+    // 同样用质量分：否则只会按落点误差挑，挑出软弱高吊（drive≈1 / loft≈0.46）
+    return { s: shotQuality(r.ev, target, side, c), r, drive:d };
   };
   let best = tryD(drive0), comp = false;
   if (allowComp){
@@ -615,33 +714,65 @@ function solveDrive(c, side, target, P, yaw, loft, drive0, allowComp, brushOv){
    ① 技术拍型（自动）：搓球后仰亮拍 + 切下旋、弧圈/扣杀前倾压拍
    ② 手动滑块（拍面倾角 / 转向）
    叠加后重新二分驱动速度，仍然保证落台。 */
-function faceAdjust(c, sol, target, P, allowComp, opt){
+function faceAdjust(c, sol, target, P, allowComp, opt, side){
+  const sd = side || -1;
   if (!sol) return sol;
   const tLoft = (opt && opt.loft) || 0, tYaw = (opt && opt.yaw) || 0;
   const mTilt = (P.tilt||0)*Math.PI/180, mFace = (P.face||0)*Math.PI/180;
   const brush = (opt && opt.brush) || null;
   const manual = Math.abs(mTilt)+Math.abs(mFace) >= 0.006;
   if (Math.abs(tLoft)+Math.abs(tYaw) < 0.006 && !manual && !brush) return sol;
-  const yaw0  = Math.atan2(sol.n[0], -sol.n[2]);        // 玩家 side=-1，朝 -Z
+  const yaw0  = Math.atan2(sol.n[0], sol.n[2]*sd);     // side=-1 朝 -Z；side=+1 朝 +Z
   const loft0 = Math.asin(clamp(sol.n[1], -1, 1));
-  const mk = (loftAdd, yawAdd, br)=>{
+  // 柔性技术（搓/调/挑）只给「技术版」限力度（dOver），平快版仍用完整驱动：
+  // 若把平快版的力度也压低，它会下网，反而只剩高吊可选 → 越改越高
+  const dCap = (opt && opt.dCap) || 0;
+  const mk = (loftAdd, yawAdd, br, dOver)=>{
     const yaw  = clamp(yaw0 + yawAdd, -1.00, 1.00);
     const loft = clamp(loft0 + loftAdd, -0.45, 1.05);
-    const q = solveDrive(c, -1, target, P, yaw, loft, sol.drive, allowComp, br);
+    const q = solveDrive(c, sd, target, P, yaw, loft, dOver || sol.drive, allowComp, br);
     return q ? { q, yaw, loft } : null;
   };
-  const lands = r => !!(r && r.q.r.ev && !r.q.r.ev.net && !r.q.r.ev.out && r.q.r.ev.landings.length);
-  const withTech = mk(mTilt + tLoft, mFace + tYaw, brush);
-  const noTech   = mk(mTilt, mFace, null);
-  // 技术偏置绝不允许破坏「保证落台」：落不了台就退回不带技术偏置的解
-  let use = withTech, techOn = !!((tLoft || brush) && withTech);
-  if (withTech && !lands(withTech)){ use = noTech || withTech; techOn = false; }
-  if (!use) use = noTech || withTech;
+  // 关键：最终这一拍必须「过网且落对方半台」，否则视为无效。深落点高球若只落
+  // 在己方半台（尽管落在台面上），会被判「不过网」。技术偏置 / 手动偏置若导致不过
+  // 网，依次退回：不带技术偏置的解 → 自动解算解（已验证可过网），绝不允许回球不过网。
+  const cross = r => !!(r && r.q && r.q.r && r.q.r.ev && !r.q.r.ev.net && !r.q.r.ev.out &&
+                        r.q.r.ev.landings.length && sgn(r.q.r.ev.landings[0][1]) === sd);
+  const solCross = !!(sol && sol.r && sol.r.ev && !sol.r.ev.net && !sol.r.ev.out &&
+                      sol.r.ev.landings.length && sgn(sol.r.ev.landings[0][1]) === sd);
+  // 技术摩擦同样按驱动缩放（否则固定的 6~12 m/s 切向速度会把强驱动抬成冲天炮）
+  const bk2 = clamp(sol.drive/6, 0.4, 1.5);
+  const br2 = brush ? [brush[0]*bk2, brush[1]*bk2] : null;
+  const withTech = mk(mTilt + tLoft, mFace + tYaw, br2, dCap ? Math.min(sol.drive, dCap) : 0);
+  const noTech   = mk(mTilt, mFace, null, 0);
+  // 质量优先：技术偏置若把球变成高吊球（弧顶高 / 过网余量大），就退回更平的那一版；
+  // 只有全部「不过网」时才会接受出界解（宁可出界也不下网）。
+  const qOf = r => {
+    const ev = (r && r.q && r.q.r) ? r.q.r.ev : (r && r.ev ? r.ev : null);
+    return ev ? shotQuality(ev, target, sd, c) : 999;
+  };
+  const opts = [];
+  if (withTech && cross(withTech)) opts.push({ u:withTech, on:!!(tLoft || brush), q:qOf(withTech) });
+  if (noTech   && cross(noTech))   opts.push({ u:noTech,   on:false, q:qOf(noTech) });
+  if (solCross) opts.push({ u:{ q:{ s:sol.s, r:sol.r, drive:sol.drive, comp:sol.compensated },
+                               yaw:sol.yaw, loft:sol.loft }, on:false, q:qOf(sol) });
+  if (!opts.length){
+    if (noTech)         opts.push({ u:noTech,   on:false, q:qOf(noTech) });
+    else if (withTech)  opts.push({ u:withTech, on:!!(tLoft || brush), q:qOf(withTech) });
+  }
+  opts.sort((a, b) => a.q - b.q);
+  const top = opts[0] || null;
+  const use = top ? top.u : null;
+  const techOn = top ? top.on : false;
+  if (use) use.br = techOn ? brush : null;
   if (!use) return sol;
   const { q, yaw, loft } = use;
   return { s:q.s, r:q.r, loft, yaw, drive:q.drive, n:q.r.n, vp:q.r.vp,
            st:q.r.st, ev:q.r.ev, info:q.r.info, compensated:q.comp, faceOn:manual,
-           tech: techOn ? (opt && opt.tech) : undefined, techManual: manual,
+           // 技术名：即便物理上退回基础解，也保留「本意选择的技术」作为链路/姿态标签
+           tech: (opt && opt.tech) || undefined,
+           techApplied: techOn, techManual: manual,
+           brush: use.br || null,
            drive0: sol.drive0 !== undefined ? sol.drive0 : sol.drive };
 }
 /* 当前这一拍的技术 → 解算用的拍面偏置（loft / brush） */
@@ -649,14 +780,15 @@ function incomingTop(st){
   const vh = Math.max(1e-6, Math.hypot(st[3], st[5]));
   return (st[6]*st[5] - st[8]*st[3]) / vh;             // 来球上旋分量（正 = 上旋）
 }
-function techOpt(P, st, bh, c){
-  const key = strokeTech({ drive: -1.5 + clamp(P.power,0,100)/100*10,
-                           bTop: brushOf(P)[0], top: incomingTop(st),
-                           y: (c && c[1]) || 1.0, tz: Math.abs(G.target[1]), bh });
+function techOpt(P, st, bh, c, lock){
+  const key = stageTech(P, st, c, bh, lock);
   const T = TECH[key] || TECH.drive;
   const [bT, bS] = brushOf(P);
-  return { tech:key, loft:T.loft || 0, yaw:0,
-           brush: (T.brush !== undefined && bT > T.brush) ? [T.brush, bS] : null };
+  // 技术手段同时决定「摩擦量」：定义了 brush 就一律按该技术施加旋转（搓=下旋 / 拧·拉·调=上旋）
+  // dCap：柔性技术的力度上限。搓/摆短/高调本身要靠"轻"来控制弧线，
+  // 若沿用强驱动 + 大仰角（chop loft 0.55 / lob 0.60），球会直接变成冲天炮（弧顶 3m+）。
+  return { tech:key, loft:T.loft || 0, yaw:0, dCap:T.dCap || 0,
+           brush: (T.brush !== undefined) ? [T.brush, bS] : null };
 }
 /* 设置拍面微调（滑块 / Shift 拖动共用） */
 function setFace(tilt, face){
@@ -666,6 +798,23 @@ function setFace(tilt, face){
   if (UI.s_face) UI.s_face.value = G.P.face;
   syncLabels();
   if (G.frz && G.frz.active) frzResolve(); else planDirty = true;
+}
+/* 设置「拍柄方向」：绕拍面法线的自转（度）—— 只改拍头 / 拍柄朝向 */
+function setRoll(deg){
+  G.P.roll = clamp(Math.round(+deg || 0), -180, 180);
+  if (UI.s_roll) UI.s_roll.value = G.P.roll;
+  syncLabels();
+  if (G.frz && G.frz.active) toastFreezeFace();
+}
+/* 拍头朝向 → 中文方位（上/下 · 外/内 · 前/后） */
+function headDesc(Y){
+  if (!Y) return '—';
+  const up = Y[1], fw = -Y[2], out = Y[0];           // 玩家朝 -Z 击球，+X = 持拍侧外
+  const nm = (v,a,b)=> v > 0.30 ? a : v < -0.30 ? b : '';
+  const A = [[Math.abs(up), nm(up,'上','下')], [Math.abs(out), nm(out,'外','内')], [Math.abs(fw), nm(fw,'前','后')]];
+  A.sort((p,q)=>q[0]-p[0]);
+  if (!A[0][1]) return '—';
+  return (A[1][0] > 0.34 && A[1][1] ? A[1][1] : '') + A[0][1];
 }
 
 /* ── 沿来球轨迹搜索"最佳击球点" ── */
@@ -680,13 +829,17 @@ function findContact(incoming, side, target, P){
       if (Math.abs(st[0])<=T.halfW && Math.abs(st[2])<=T.halfL){
         st[1]=T.top+PH.r; bounceTable(st,null); pb = T.top+1e-4;
         if (sgn(st[2]) === -side) ownB++;                 // 落在本方半台 → 取得回击资格
-        else if (ownB === 0) return null;                 // 首次落台在对方半台 → 不可回击
+        // 注意：接「发球」时第一落点必然在对方半台（合法），不能在此 return null，
+        // 必须等到第二跳落本方半台（ownB→1）后才有候选击球点。
       } else pb = bottom;
     } else pb = bottom;
     if (ownB >= 2) break;                                 // 二次落台 → 回合已结束
     const x=st[0], y=st[1], z=st[2];
-    const okZ = side<0 ? (z>0.10 && z<2.40) : (z<-0.10 && z>-2.40);
-    if (ownB >= 1 && okZ && y>0.755 && y<1.45 && Math.abs(x)<1.15)
+    // 击球点必须落在「本方半台台面范围内」（-lim ~ +lim，lim=台半长-余量），
+    // 避免把端线后方 / 出界处的点当成合法击球点（高球落点深时尤其致命）。
+    const lim = (T.halfL || 1.37) - 0.03;
+    const okZ = side<0 ? (z>0.12 && z<lim) : (z<-0.12 && z>-lim);
+    if (ownB >= 1 && okZ && y>0.82 && y<2.30 && Math.abs(x)<1.15)
       cands.push({ c:[x,y,z,st[3],st[4],st[5],st[6],st[7],st[8]], t, y, z });
     if (bottom <= 0.05 || Math.abs(z) > 2.9) break;
   }
@@ -696,11 +849,14 @@ function findContact(incoming, side, target, P){
   const pick = cands.filter((_,i)=>i%step===0);
 
   // 粗评估：对每个候选点做一次"快速落点反解"（含三档力度粗搜），
-  // 评分 = 落点误差 + 击球高度偏好
+  // 评分 = 落点误差 + 击球高度偏好 + 回球弧线高度惩罚（避免被迫打高球）。
   for (const cd of pick){
     const sol = solveShot(cd.c, side, target, P, false, true);
     cd.sol = sol;
-    cd.s0  = sol ? sol.s + Math.abs(cd.y - P.hp)*0.8 : 99;
+    // 回球 apex 越低越好：越高越容易被扣/被挑，也违背"避免打高球"。
+    // 注意 fast 模式的 solveShot 返回 { s, r, ... }，ev 在 sol.r.ev。
+    // 用「质量分」（含弧线高度惩罚）选点：优先能打出平快球的击球点
+    cd.s0  = sol ? shotQuality(sol.r.ev, target, side, cd.c) + Math.abs(cd.y - P.hp)*0.8 : 99;
   }
   pick.sort((a,b)=>a.s0-b.s0);
   const best = pick[0];
@@ -763,9 +919,11 @@ function serveTry(c, side, target, P, bTop, bSide){
   }
   return best;
 }
-function solveServe(c, side, target, P){
+function solveServe(c, side, target, P, serveDef){
   const [bT0, bS0] = brushOf(P);
-  const bTop = bT0*0.55, bSide = bS0*0.5;      // 发球：轻度摩擦
+  // 指定发球类型 → 用其旋转(brush)；否则沿用旧逻辑（轻度摩擦）
+  let bTop = bT0*0.55, bSide = bS0*0.5;
+  if (serveDef && serveDef.brush){ bTop = serveDef.brush[0]; bSide = serveDef.brush[1]; }
   // 找不到完全合法的组合时，逐步退让：先放宽擦网余量，再放宽第二落点深度
   let s = serveTry(c, side, target, P, bTop, bSide);
   if (s) return s;
@@ -779,9 +937,37 @@ function solveServe(c, side, target, P){
 /* ══════════════════════════════════════════════════════════════════
    4. Three.js 场景
    ══════════════════════════════════════════════════════════════════ */
+/* ══════ 卡通（赛璐璐 / cel-shading）渲染工具 ══════
+   卡通风格的三个要素：① 阶梯状明暗（不是平滑渐变）② 粗描边轮廓 ③ 高饱和纯色。 */
+
+/* 阶梯渐变贴图：把连续光照量化成 4 个色块，得到卡通"分层"明暗 */
+const toonGradient = (()=>{
+  const steps = new Uint8Array([96, 160, 214, 255]);
+  const tex = new THREE.DataTexture(steps, steps.length, 1, THREE.RedFormat);
+  tex.minFilter = THREE.NearestFilter; tex.magFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false; tex.needsUpdate = true;
+  return tex;
+})();
+/* 卡通材质：统一走 toon，保证全场景风格一致 */
+function toonMat(color, opt){
+  return new THREE.MeshToonMaterial(Object.assign({ color, gradientMap: toonGradient }, opt || {}));
+}
+/* 卡通描边：复制网格 → 反面渲染 + 略微放大，形成黑色轮廓线 */
+const OUTLINE_C = 0x14161f;
+function addOutline(mesh, scale, color){
+  if (!mesh || !mesh.geometry) return null;
+  const m = new THREE.Mesh(mesh.geometry,
+    new THREE.MeshBasicMaterial({ color: (color === undefined ? OUTLINE_C : color), side: THREE.BackSide }));
+  m.scale.setScalar(scale || 1.05);
+  m.castShadow = false; m.receiveShadow = false;
+  mesh.add(m);
+  return m;
+}
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0e14);
-scene.fog = new THREE.Fog(0x0a0e14, 6, 16);
+/* 明亮卡通天空（上浅蓝 → 下更浅，营造 outdoors 感） */
+scene.background = new THREE.Color(0x7ec8f2);
+scene.fog = new THREE.Fog(0xa8ddf7, 9, 26);
 
 const camera = new THREE.PerspectiveCamera(46, innerWidth/innerHeight, 0.05, 100);
 const renderer = new THREE.WebGLRenderer({ antialias:true });
@@ -791,28 +977,37 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.getElementById('c').appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0x9fc4ff, 0x20242c, 0.55));
-const key = new THREE.DirectionalLight(0xffffff, 1.5);
+/* 卡通光照：明亮、均匀、弱阴影 —— 避免写实暗部，保持"平涂"观感 */
+scene.add(new THREE.HemisphereLight(0xdff0ff, 0x8fbf6a, 0.95));
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));        // 提亮暗部，卡通不留死黑
+const key = new THREE.DirectionalLight(0xfff8e7, 1.15);
 key.position.set(2.2, 5.2, 3.0); key.castShadow = true;
 key.shadow.mapSize.set(1024,1024); key.shadow.camera.near=1; key.shadow.camera.far=14;
 key.shadow.camera.left=-3.2; key.shadow.camera.right=3.2; key.shadow.camera.top=3.2; key.shadow.camera.bottom=-3.2;
 key.shadow.bias = -0.0008;
 scene.add(key);
-const fill = new THREE.DirectionalLight(0x8ab4ff, 0.4); fill.position.set(-3,2,-2.5); scene.add(fill);
+const fill = new THREE.DirectionalLight(0xbfe4ff, 0.35); fill.position.set(-3,2,-2.5); scene.add(fill);
 
-/* 地面 */
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(26,26),
-  new THREE.MeshStandardMaterial({ color:0x141a24, roughness:0.95, metalness:0 }));
+/* 地面：卡通草地球场（马里奥网球风格的亮绿） */
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(26,26), toonMat(0x5fbf52));
 floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
-const grid = new THREE.GridHelper(26, 52, 0x1d2532, 0x161c26);
-grid.material.transparent = true; grid.material.opacity = 0.5; scene.add(grid);
+/* 球场边线（白色粗条，卡通感） */
+const courtLine = new THREE.Mesh(new THREE.RingGeometry(4.6, 4.75, 48),
+  new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.55, side:THREE.DoubleSide }));
+courtLine.rotation.x = -Math.PI/2; courtLine.position.y = 0.004; scene.add(courtLine);
+/* 网格线淡化（保留落点参考，但调成卡通浅色） */
+const grid = new THREE.GridHelper(26, 52, 0xffffff, 0xffffff);
+grid.material.transparent = true; grid.material.opacity = 0.16; scene.add(grid);
 
 /* 球台 */
 const tableG = new THREE.Group(); scene.add(tableG);
-const topMat = new THREE.MeshStandardMaterial({ color:0x1b4f8f, roughness:0.42, metalness:0.06 });
+const topMat = toonMat(0x1f7ae0);                       // 鲜艳卡通蓝台面
 const tableTop = new THREE.Mesh(new THREE.BoxGeometry(T.W, 0.05, T.L), topMat);
 tableTop.position.y = T.top - 0.025; tableTop.receiveShadow = true; tableTop.castShadow = true;
 tableTop.name = 'tableTop'; tableG.add(tableTop);
+/* 台裙（深色包边，卡通厚描边感） */
+const skirt = new THREE.Mesh(new THREE.BoxGeometry(T.W+0.07, 0.055, T.L+0.07), toonMat(0x123a6b));
+skirt.position.y = T.top - 0.062; tableG.add(skirt);
 
 const lineMat = new THREE.MeshBasicMaterial({ color:0xf2f6ff });
 const addLine = (w,d,x,z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,0.002,d), lineMat);
@@ -825,33 +1020,33 @@ const zoneMat = new THREE.MeshBasicMaterial({ color:0x60a5fa, transparent:true, 
 const zone = new THREE.Mesh(new THREE.PlaneGeometry(T.W, T.halfL-0.06), zoneMat);
 zone.rotation.x = -Math.PI/2; zone.position.set(0, T.top+0.0025, -T.halfL/2-0.03); tableG.add(zone);
 
-/* 台腿 */
-const legMat = new THREE.MeshStandardMaterial({ color:0x232a36, roughness:0.7, metalness:0.3 });
+/* 台腿（卡通深蓝 + 粗描边） */
+const legMat = toonMat(0x274b7d);
 for (const sx of [-1,1]) for (const sz of [-1,1]){
-  const l = new THREE.Mesh(new THREE.BoxGeometry(0.09, T.top-0.05, 0.09), legMat);
+  const l = new THREE.Mesh(new THREE.BoxGeometry(0.10, T.top-0.05, 0.10), legMat);
   l.position.set(sx*(T.halfW-0.18), (T.top-0.05)/2, sz*(T.halfL-0.22)); l.castShadow = true; tableG.add(l);
+  addOutline(l, 1.10);
 }
 
-/* 球网 */
+/* 球网：白色网面 + 卡通亮色顶带 + 醒目支柱 */
 const netG = new THREE.Group(); scene.add(netG);
 const net = new THREE.Mesh(new THREE.PlaneGeometry(T.netW, T.netH),
-  new THREE.MeshStandardMaterial({ color:0xdfe7f2, transparent:true, opacity:0.20, side:THREE.DoubleSide,
-    roughness:1, depthWrite:false }));
+  new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.30, side:THREE.DoubleSide,
+    depthWrite:false }));
 net.position.set(0, T.top+T.netH/2, 0); netG.add(net);
-const tape = new THREE.Mesh(new THREE.BoxGeometry(T.netW, 0.012, 0.006),
-  new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.5 }));
-tape.position.set(0, T.top+T.netH, 0); netG.add(tape);
+const tape = new THREE.Mesh(new THREE.BoxGeometry(T.netW, 0.016, 0.008), toonMat(0xffd23f));
+tape.position.set(0, T.top+T.netH, 0); netG.add(tape);   // 黄色顶带
 for (const s of [-1,1]){
-  const p = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,T.netH+0.05,10),
-    new THREE.MeshStandardMaterial({ color:0x2a323f, metalness:0.6, roughness:0.4 }));
-  p.position.set(s*(T.netW/2), T.top+T.netH/2, 0); netG.add(p);
+  const p = new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,T.netH+0.05,10), toonMat(0xe23b3b));
+  p.position.set(s*(T.netW/2), T.top+T.netH/2, 0); netG.add(p);   // 红色支柱
+  addOutline(p, 1.14);
 }
 
-/* 球 */
+/* 球：亮白 + 卡通描边（小物件描边要略粗才可见） */
 const ballG = new THREE.Group(); scene.add(ballG);
-const ball = new THREE.Mesh(new THREE.SphereGeometry(PH.r, 26, 18),
-  new THREE.MeshStandardMaterial({ color:0xfff6e8, roughness:0.45, metalness:0.02, emissive:0x221a10 }));
+const ball = new THREE.Mesh(new THREE.SphereGeometry(PH.r, 26, 18), toonMat(0xfffdf7));
 ball.castShadow = true; ballG.add(ball);
+addOutline(ball, 1.18);
 const seam = new THREE.Mesh(new THREE.TorusGeometry(PH.r*0.985, 0.0011, 6, 34),
   new THREE.MeshBasicMaterial({ color:0xff8a2b }));
 ballG.add(seam);
@@ -901,7 +1096,7 @@ let playerBH = 'rpb';                 // 我的反手方式：rpb=直拍横打 /
    brush：该技术要求的刷球量下限（负 = 下旋，搓球必须切出下旋）。 */
 const TECH = {
   loop : { name:'弧圈', hu:0.30, ho:0.88, hf:0.18, wrist:1.30, swing:1.10, face:'前倾压拍',
-           loft:-0.10, pollFh:[1.05,-0.55,-0.75], pollBh:[0.10, 0.45,-0.70],
+           loft:-0.10, brush:6, pollFh:[1.05,-0.55,-0.75], pollBh:[0.10, 0.45,-0.70],
            desc:'拍头朝外上 · 拍面前倾 · 甩腕薄摩擦' },
   drive: { name:'攻球', hu:0.64, ho:0.76, hf:0.12, wrist:0.85, swing:0.90, face:'略前倾',
            loft:-0.03, pollFh:[1.00,-0.35,-0.55], pollBh:[0.20, 0.60,-0.55],
@@ -910,8 +1105,17 @@ const TECH = {
            loft:-0.20, pollFh:[0.85, 0.15,-0.25], pollBh:[0.30, 0.30,-0.35],
            desc:'拍头高举 · 拍面前倾 · 加速下压' },
   chop : { name:'搓球', hu:-0.30, ho:0.12, hf:1.00, wrist:0.16, swing:0.45, face:'后仰亮拍',
-           loft: 0.55, brush:-7, pollFh:[0.45, 0.85,-0.20], pollBh:[0.15, 0.80,-0.35],
+           loft: 0.55, brush:-7, dCap:2.8, pollFh:[0.45, 0.85,-0.20], pollBh:[0.15, 0.80,-0.35],
            desc:'拍头朝前下探到球底 · 拍面后仰亮开 · 手腕固定切薄' },
+  twist: { name:'拧拉', hu: 0.10, ho:0.62, hf:0.55, wrist:0.92, swing:0.80, face:'前倾·亮内侧',
+           loft: 0.14, brush: 10, pollFh:[0.35, 0.55, 0.10], pollBh:[0.20, 0.50, 0.45],
+           desc:'拍头朝外上抬到球侧后 · 手腕外展内旋 · 台内拧裹薄磨' },
+  flick: { name:'挑打', hu: 0.52, ho:0.42, hf:0.28, wrist:0.70, swing:0.55, face:'略后仰托送',
+           loft: 0.26, brush: 5, dCap:3.4, pollFh:[0.55, 0.42,-0.15], pollBh:[0.35, 0.45,-0.20],
+           desc:'拍头朝上插入台面 · 手腕前顶挑起 · 短促爆发' },
+  lob  : { name:'高调', hu: 0.16, ho:0.72, hf:0.22, wrist:0.85, swing:1.05, face:'前倾·包球',
+           loft: 0.60, brush: 12, dCap:3.6, pollFh:[0.20, 0.80,-0.10], pollBh:[0.15, 0.75,-0.15],
+           desc:'拍头下沉再向上拎 · 拍面压住球顶摩擦 · 高弧线深落点' },
   push : { name:'推挡', hu:0.96, ho:-0.20, hf:0.12, wrist:0.30, swing:0.40, face:'立拍',
            loft: 0.08, pollFh:[0.30, 0.55,-0.45], pollBh:[0.25, 0.60,-0.50],
            desc:'拍头朝上偏内 · 拍面立起 · 借力' },
@@ -919,15 +1123,76 @@ const TECH = {
            loft: 0.02, pollFh:[0.40, 0.70,-0.35], pollBh:[0.30, 0.65,-0.45],
            desc:'拍头朝上 · 拍面立 · 借力快挡' },
 };
+
+/* ── 发球类型：每种发球 = 旋转(brush) + 落点目标 + 说明 ──
+   brush[0]=上/下旋（正=上旋，负=下旋），brush[1]=侧旋（± 决定横向拐向）。
+   tgt 以「玩家视角」给出（z 取负 = 对方半台深度），AI 发球时按 side 镜像。 */
+const SERVES = {
+  backspin: { name:'下旋',     brush:[-9, 0],  tgt:[ 0.0,-0.35], desc:'强下旋 · 短而不出台' },
+  backhand: { name:'反手',     brush:[-5, 5],  tgt:[-0.3,-0.55], desc:'反手侧下旋 · 中短' },
+  reverse:  { name:'逆旋转',   brush:[-4,-7],  tgt:[ 0.3,-0.55], desc:'逆侧旋 · 横向拐' },
+  hook:     { name:'勾手',     brush:[-4, 7],  tgt:[-0.3,-0.55], desc:'勾手侧下旋 · 反向拐' },
+  fasttop:  { name:'急长上旋', brush:[ 9, 0],  tgt:[ 0.0,-0.95], desc:'急长上旋 · 顶底线' },
+};
+const SERVE_KEYS = Object.keys(SERVES);
+function pickServeKey(){ return SERVE_KEYS[(Math.random()*SERVE_KEYS.length)|0]; }
 let techLock = '';                    // 手动锁定技术（'' = 自动）
+let serveLock = 'auto';               // 我的发球类型（'auto' = 每球随机变化）
+let recvLock  = 'auto';               // 我的接发球手段（'auto' = 按来球自动选择）
+
+/* ── 回合阶段：serve（发球）→ receive（接发球）→ rally（相持）──
+   G.ptHits = 本分已出手次数：发球=1，接发球=2，之后进入相持。 */
+function isServing(){ return G.ptHits <= 1 && G.last !== ''; }
+function isReceive(){ return G.ptHits <= 1; }
+
+/* ── 接发球手段：按来球旋转 / 速度 / 长短 / 高度自动选择 ──
+   强下旋短球 → 搓球 或 拧拉（随机）；强下旋长/顶 → 高调；弱旋台内 → 挑打/搓；
+   出台下旋 → 弧圈；其余按常规 strokeTech。 */
+const RECV_KEYS = ['', 'chop', 'twist', 'flick', 'lob'];
+/* 各接发球手段的默认落点（对方半台 z 取负）：
+   搓=摆短台内 · 拧=斜线拧长 · 挑=快压中路偏深 · 高调=深长顶底线 */
+const RECV_TGT = {
+  chop :[-0.34,-0.30], twist:[ 0.34,-0.72], flick:[ 0.12,-0.82],
+  lob  :[-0.28,-1.10], loop :[-0.30,-1.05],
+};
+function recvTech(P, st, c, bh, lock){
+  const L = (lock === undefined) ? recvLock : lock;
+  if (L && L !== 'auto' && TECH[L]) return L;
+  const top = incomingTop(st);                          // 正 = 上旋，负 = 下旋
+  const near = Math.abs(c[2]) < 0.85;                   // 近网 / 台内（未出台）
+  const lowY = c[1] < 0.95;
+  const heavy = top < -120, mid = top < -40;            // 下旋越强越负（普通下旋发球≈-150，弱≈-30）
+  // 高球（高点 + 出台）优先扣杀；近网高球吸短（摆短）—— 都放在最前，保证处理高球
+  if (c[1] > 1.45 && !near) return 'smash';             // 高点出台 → 扣杀
+  if (c[1] > 1.20 && near)  return 'chop';              // 近网高点 → 吸短摆短
+  if (heavy && !near) return 'lob';                     // 极强下旋出台 → 高调拉起（罕见）
+  if (mid && !near)   return 'loop';                    // 中强下旋出台 → 弧圈拉起（更平更快）
+  if (mid && near)    return lowY ? 'chop' : 'flick';
+  if (near && !lowY)  return 'flick';                   // 不转 / 上旋台内 → 挑打
+  if (top < -10)      return 'loop';                    // 弱下旋 → 拉起
+  return strokeTech({ drive: -1.5 + clamp(P.power,0,100)/100*10,
+                      bTop: brushOf(P)[0], top, y:c[1], tz:Math.abs(c[2]), short:near, bh });
+}
+/* 统一入口：接发球阶段用 recvTech，相持阶段用 strokeTech；手动锁定的拍型优先 */
+function stageTech(P, st, c, bh, lock){
+  if (techLock && TECH[techLock]) return techLock;
+  return isReceive() ? recvTech(P, st, c, bh, lock)
+                     : strokeTech({ drive: -1.5 + clamp(P.power,0,100)/100*10,
+                                    bTop: brushOf(P)[0], top: incomingTop(st),
+                                    y: c[1], tz: Math.abs(c[2]), short: Math.abs(c[2]) < 0.85, bh });
+}
 
 /* 自动判断这一拍是什么技术：看来球旋转、来球速度、击球点高度、驱动速度、摩擦量、落点深度 */
 function strokeTech(o){
   if (techLock && TECH[techLock]) return techLock;
   const drive = o.drive, spin = Math.abs(o.bTop || 0), top = o.top || 0;
   const y = o.y, tz = Math.abs(o.tz || 0);
-  if (y < 1.10 && drive < 2.6 && tz < 1.10) return 'chop';     // 台内 / 近网 + 轻力量 = 搓（摆短）
-  if (drive < 2.8 && top < -6) return 'chop';                  // 来球下旋 + 轻力量 = 搓
+  const short = o.short;                        // 近网 / 台内（未出台）
+  // 高球优先处理：高点 + 出台 → 扣杀；高点 + 近网 → 吸短（摆短）
+  if (y > 1.45 && tz > 0.85) return 'smash';
+  if (y > 1.20 && tz <= 0.85) return 'chop';
+  if (short && y < 1.10 && drive < 3.0) return 'chop';   // 台内 + 轻力量 = 搓（摆短）
+  if (drive < 2.6 && top < -10 && !short) return 'loop';  // 出台下旋 + 轻力量 = 弧圈拉起（不要搓成短球）
   if (drive < 4.2 && spin < 5.0) return o.bh ? 'push' : 'block';
   if (drive > 7.0 && spin < 6.5) return 'smash';
   if (spin >= 6.0) return 'loop';
@@ -976,7 +1241,43 @@ function setBH(m){
     toast(playerBH === 'rpb' ? '反手：直拍横打' : '反手：推挡',
           playerBH === 'rpb' ? '手腕外展 · 拍背朝前击球 · 拍头朝外' : '正面推挡 · 拍头朝上偏内');
 }
-const TECH_KEYS = ['', 'loop', 'drive', 'smash', 'chop', 'push'];
+const TECH_KEYS = ['', 'loop', 'drive', 'smash', 'chop', 'twist', 'flick', 'lob', 'push'];
+/* ── 发球类型（'auto' = 每球随机变化）── */
+function setServe(k){
+  serveLock = (k && SERVES[k]) ? k : 'auto';
+  syncServeUI();
+  const sd = SERVES[serveLock];
+  toast('发球：' + (sd ? sd.name : '随机变化'),
+        sd ? sd.desc : '每球在下旋 / 反手 / 逆旋转 / 勾手 / 急长上旋之间变化');
+}
+function syncServeUI(){
+  const tb = document.getElementById('servebtns');
+  if (tb) Array.from(tb.children).forEach(b=> b.classList.toggle('on', b.dataset.k === serveLock));
+  const tag = document.getElementById('serveTag');
+  if (tag){
+    if (G.serveKey && G.lastServe && G.lastServe.side === -1 && tag.dataset)
+      tag.textContent = SERVES[G.serveKey] ? SERVES[G.serveKey].name : '随机变化';
+    else tag.textContent = (serveLock === 'auto') ? '随机变化' : SERVES[serveLock].name;
+  }
+}
+/* ── 接发球手段（'auto' = 按来球自动）── */
+const RECV_UI = ['', 'chop', 'twist', 'flick', 'lob'];
+function setRecv(k){
+  recvLock = (k && TECH[k]) ? k : 'auto';
+  G.recvKey = ''; G.recvName = '';                 // 改了手段 → 本回合重新决策
+  G.recvP = { key:'', name:'' }; G.recvA = { key:'', name:'' };
+  syncRecvUI();
+  toast('接发球：' + (k && TECH[k] ? TECH[k].name : '自动'),
+        (k && TECH[k]) ? TECH[k].desc
+                       : '按来球旋转 / 长短 / 高低自动在 搓球 · 拧拉 · 挑打 · 高调 · 扣杀 之间选择');
+}
+function syncRecvUI(){
+  const tb = document.getElementById('recvbtns');
+  if (tb) Array.from(tb.children).forEach(b=> b.classList.toggle('on', b.dataset.k === recvLock));
+  const tag = document.getElementById('recvTag');
+  if (tag) tag.textContent = (recvLock !== 'auto' && TECH[recvLock]) ? TECH[recvLock].name
+                           : (isReceive() && G.recvP.name) ? G.recvP.name + ' · 自动' : '自动';
+}
 function setTech(k){
   techLock = (k && TECH[k]) ? k : '';
   syncTechUI();
@@ -994,7 +1295,7 @@ function syncTechUI(){
 function makePaddle(rubber, style){
   const S = PAD_GEO[style] || PAD_GEO.penhold;
   const g = new THREE.Group();
-  const wood = new THREE.MeshStandardMaterial({ color:0xd8b98a, roughness:0.62 });
+  const wood = toonMat(0xe8c79a);
   const shape = new THREE.Shape();
   shape.absellipse(0, 0, S.b, S.a, 0, Math.PI*2, false, 0);
 
@@ -1005,28 +1306,26 @@ function makePaddle(rubber, style){
   blade.position.z = -0.0031; blade.castShadow = true; g.add(blade);
 
   // 正手胶皮（红/蓝）+ 反手胶皮（黑）
-  const fh = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48),
-    new THREE.MeshStandardMaterial({ color:rubber, roughness:0.86 }));
+  const fh = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48), toonMat(rubber));
   fh.position.z = 0.0040; g.add(fh);
   const bh = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48),
-    new THREE.MeshStandardMaterial({ color:0x15181e, roughness:0.9, side:THREE.DoubleSide }));
+    toonMat(0x2a2f3d, { side:THREE.DoubleSide }));
   bh.position.z = -0.0040; g.add(bh);
 
   // 拍柄：直拍为扁短柄，横拍为带 flare 的长柄
   const gy = -(S.a*0.72 + S.grip*0.5);
   const handle = new THREE.Mesh(
     new THREE.CylinderGeometry(S.flare*0.86, S.flare, S.grip, 18),
-    new THREE.MeshStandardMaterial({ color:0x6b4a2c, roughness:0.72 }));
+    toonMat(0x8a5a30));
   handle.position.set(0, gy, style === 'penhold' ? -0.002 : 0);
   handle.scale.set(style === 'penhold' ? 0.86 : 1.0, 1, style === 'penhold' ? 1.05 : 1.0);
   handle.castShadow = true; g.add(handle);
   // 柄口软木 / 拍肩
-  const neck = new THREE.Mesh(new THREE.BoxGeometry(S.b*0.72, 0.030, 0.026),
-    new THREE.MeshStandardMaterial({ color:0x8a6238, roughness:0.75 }));
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(S.b*0.72, 0.030, 0.026), toonMat(0xa9763f));
   neck.position.set(0, -S.a*0.74, 0); g.add(neck);
   if (style === 'shakehand'){
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(S.flare*1.16, S.flare*1.16, 0.020, 18),
-      new THREE.MeshStandardMaterial({ color:0x2b1d10, roughness:0.8 }));
+      toonMat(0x3a2716));
     cap.position.set(0, gy - S.grip*0.5 + 0.010, 0); g.add(cap);
   }
   return g;
@@ -1043,7 +1342,7 @@ function setGrip(style){
   scene.add(pPad);
   const S = PAD_GEO[playerGrip];
   faceDisc.scale.set(S.b*0.97, S.a*0.97, 1);
-  padAim.scale.set(S.b*1.10/0.091, S.a*1.10/0.091, 1);
+  padAim.scale.set(S.b*1.18, S.a*1.18, S.b*1.18);
   const bp = $('b_grip_pen'), bs = $('b_grip_shk');
   if (bp) bp.classList.toggle('on', playerGrip === 'penhold');
   if (bs) bs.classList.toggle('on', playerGrip === 'shakehand');
@@ -1052,10 +1351,17 @@ function setGrip(style){
   if (bu) bu.textContent = playerGrip === 'penhold' ? '推挡' : '反手：立拍';
 }
 
-/* 拍面朝向可视化：黄色圆环 = 拍面的实际朝向（法线即环的轴向） */
-const padAim = new THREE.Mesh(new THREE.RingGeometry(0.083, 0.099, 44),
-  new THREE.MeshBasicMaterial({ color:0xffd166, transparent:true, opacity:0.9, side:THREE.DoubleSide }));
+/* 拍面朝向可视化：黄色圆环 = 拍面的实际朝向（法线即环的轴向）
+   用立体 Torus 而非平面 Ring：拍面转到侧面时不会压成一条线忽明忽暗 */
+const padAim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.052, 8, 48),
+  // 深度测试关闭 + 最后绘制：既不会与拍缘 Z-fighting，也不会被半透明己方角色忽隐忽现地挡住
+  new THREE.MeshBasicMaterial({ color:0xffd166, transparent:true, opacity:0.95,
+    depthTest:false, depthWrite:false }));
+padAim.renderOrder = 999;                 // 始终画在最上层
 padAim.visible = false; scene.add(padAim);
+// 环在 XY 平面：x/y 缩放决定椭圆大小，z 缩放决定管径粗细（≈4mm），三者都要设。
+// 1.18× 让环明显套在拍缘之外，避开拍面倒角（0.0669）的 Z-fighting
+{ const S0 = PAD_GEO.penhold; padAim.scale.set(S0.b*1.18, S0.a*1.18, S0.b*1.18); }
 
 /* 可视化线条 */
 function mkLine(color, max, dashed, op){
@@ -1143,13 +1449,20 @@ const G = {
   live: false, phase:'ready',          // ready | play | point
   score:{ p:0, a:0 }, rally:0, server:'p', serveCount:0,
   last:'', bounces:0, needOwn:false,
+  ptHits:0,                          // 本分出手次数：发球=1，接发球=2，之后=相持
+  stage:'',                          // 阶段：serve | receive | rally
+  serveType:'', lastServe:null,      // 本次发球类型
+  recvKey:'', recvName:'',           // 本次接发球手段（'' = 自动）—— 兼容旧引用
+  recvP:{ key:'', name:'' },         // 玩家接发球手段（每分独立）
+  recvA:{ key:'', name:'' },         // AI 接发球手段（每分独立）
+  serveKey:'', serveName:'',         // 我方本次发球名称（供 HUD 显示）
   bounceOK:{ p:false, a:false },     // 规则：本方半台已落台才允许回击（禁止空中截击）
   netTouch:false,                    // 本次击球是否已擦网（每回合只判一次）
   paused:false, slow:false,
   target:[0, -0.95],                   // 玩家落点目标 [x,z]
   auto:true,           // 总开关：自动迎球 + 击球参数自动最佳化（false = 全手动）
   P:{ power:35, spin:45, side:0, timing:0, hp:1.02, mu:0.45, grip:0.78, rest:0.82, assist:88, ai:60,
-      tilt:0, face:0 },                          // tilt/face：拍面手动微调（度）
+      tilt:0, face:0, roll:0 },                  // tilt/face：拍面手动微调（度）；roll：拍柄方向（绕拍面法线转，只改拍头/拍柄朝向）
   Pk:{ power:35, spin:45, side:0, timing:0, hp:1.02, mu:0.45, grip:0.78, rest:0.82 },
   comp:true,
   pp:{ p:[0,0.98,1.72], n:[0,0,-1], cd:0, swing:0, swingDir:null },
@@ -1249,6 +1562,10 @@ function resetBall(serverSide){
   pad.n = n; pad.p = [serverSide==='p'?0.10:-0.10, 0.98, serverSide==='p'?1.72:-1.72];
   G.st.set([pad.p[0]+n[0]*(PH.r+0.004), pad.p[1]+n[1]*(PH.r+0.004), pad.p[2]+n[2]*(PH.r+0.004), 0,0,0, 0,0,0]);
   G.live = false; G.phase = 'ready'; G.plan = null; G.aiPlan = null; G.bounces = 0; G.last = '';
+  G.ptHits = 0; G.stage = ''; G.recvKey = ''; G.recvName = '';
+  G.recvP = { key:'', name:'' }; G.recvA = { key:'', name:'' };   // 每分独立复位
+  // 注意：G.chain 不在 resetBall 里清空，而是在下一次 doServe 时清空，
+  // 这样得分后的暂停期间仍能看到上一分的完整技术链路。
   G.pp.swing = 0; G.ap.swing = 0; G.aiLock = null; G.netTouch = false;
   clearTrail();
   if (G.frz && G.frz.active){                 // 新回合开始 → 退出定格并还原机位
@@ -1266,11 +1583,22 @@ function doServe(){
   const pad = who==='p' ? G.pp : G.ap;
   const c = [G.st[0],G.st[1],G.st[2],0,0,0,0,0,0];
   const P = who==='p' ? paramObj() : aiParamObj();
-  const tgt = who==='p' ? [-G.target[0]*0.5, -0.95] : [-G.pp.p[0]*0.5, 0.95];
-  const s = solveServe(c, side, tgt, P);
+  // ── 选择发球类型：玩家按 serveLock（auto=随机变化），AI 随机 ──
+  const key = who==='p' ? (serveLock === 'auto' ? pickServeKey() : serveLock)
+                        : pickServeKey();
+  const sd = SERVES[key] || SERVES.backspin;
+  const tgt = [sd.tgt[0], sd.tgt[1] * (-side)];   // 玩家→负z，AI→正z
+  const s = solveServe(c, side, tgt, P, sd);
   if (!s){ serveFallback(side, c, P); return; }
+  G.serveType = key;                              // 记录本次发球类型（供接发球判断）
+  G.lastServe = { key, name: sd.name, side };
+  G.chain = [];                                   // 得分后开新球 → 清空技术链路
+  G.ptHits = 0; G.stage = 'serve';                // 先设阶段，applyShot 里才能正确记录发球这一拍
   applyShot(s.r.st, who, s.r.n, s.r.vp);
   G.needOwn = true; G.bounces = 0; G.last = who;
+  G.recvKey = ''; G.recvName = '';                // 接发球手段待定
+  G.recvP = { key:'', name:'' }; G.recvA = { key:'', name:'' };
+  if (who === 'p'){ G.serveKey = key; G.serveName = sd.name; }
   startRally();
 }
 /* 兜底发球：在原求解失败时，用一次更粗但必然可行的出球（低平短球） */
@@ -1291,6 +1619,8 @@ function serveFallback(side, c, P){
         if (!best || e < best.e) best = { e, r };
       }
   const who = side<0 ? 'p' : 'a';
+  G.lastServe = { key:'backspin', name:SERVES.backspin.name, side };
+  G.ptHits = 0; G.stage = 'serve';
   if (best){ applyShot(best.r.st, who, best.r.n, best.r.vp); }
   else {
     const st = G.st, n = shotDir(side, 0, 0.18);
@@ -1298,6 +1628,9 @@ function serveFallback(side, c, P){
   }
   G.live = true; G.phase = 'play'; G.aiLock = null; G.bounces = 0; G.last = who; G.rally++;
   G.needOwn = true;
+  G.ptHits = 1; G.stage = 'serve'; G.recvKey = ''; G.recvName = '';
+  G.recvP = { key:'', name:'' }; G.recvA = { key:'', name:'' };
+  if (who === 'p'){ G.serveKey = 'backspin'; G.serveName = SERVES.backspin.name; }
   if (who === 'a') setTimeout(()=>computePlan(), 0); else { G.aiPlan = null; G.plan = null; }
 }
 function applyShot(st, who, n, vp){
@@ -1312,6 +1645,52 @@ function applyShot(st, who, n, vp){
   G.live = true; G.phase = 'play'; G.bounces = 0; G.last = who;
   G.bounceOK.p = false; G.bounceOK.a = false; G.netTouch = false;
   G.rally++;
+  G.ptHits++;                                     // 出手计数：2 = 接发球，≥3 = 相持
+  const stageNow = G.stage;
+  if (G.ptHits >= 2){ G.stage = 'rally'; G.recvKey = ''; G.recvName = ''; }
+
+  // ── 技术名称链路：每拍记录「谁 + 阶段 + 技术名」，得分后 resetBall 清空 ──
+  if (!G.chain) G.chain = [];
+  {
+    let name;
+    if (stageNow === 'serve'){
+      name = (G.lastServe && G.lastServe.name ? G.lastServe.name : '发球');
+    } else {
+      const tech = who === 'p' ? (G.plan && G.plan.tech) : (G.aiPlan && G.aiPlan.tech);
+      const T = tech && TECH[tech] ? TECH[tech] : null;
+      name = T ? T.name : '回球';
+    }
+    const bh = who === 'p' ? (G.plan ? G.plan.bh : false) : (G.aiPlan ? G.aiPlan.bh : false);
+    if (stageNow !== 'serve' && name !== '回球'){
+      name = (bh ? '反手' : '正手') + name;        // 正手拉球 / 反手攻球 等
+    }
+    G.chain.push({ who, stage:stageNow, name });
+    if (G.chain.length > 20) G.chain.shift();
+  }
+
+  if (!G.shotLog) G.shotLog = [];
+  {  // 每拍记一笔（供调试：谁打的 · 什么阶段 / 技术 · 出球是否合法）
+    const ev = predict(G.st, 2.4, 1, false);
+    const L = ev.landings[0];
+    G.shotLog.push({ who, pt:G.ptHits, stage:stageNow,
+      tech: who==='p' ? ((G.plan && G.plan.tech) || '') : ((G.aiPlan && G.aiPlan.tech) || ''),
+      v:+Math.hypot(st[3],st[4],st[5]).toFixed(2), w:+(Math.hypot(st[6],st[7],st[8])/(2*Math.PI)).toFixed(1),
+      land: L ? [+L[0].toFixed(2), +L[1].toFixed(2)] : null, net:ev.net, out:ev.out,
+      apex:+ev.apex.toFixed(2), clr: ev.netClear === null ? null : +ev.netClear.toFixed(3),
+      planApex: (()=>{ const pl = who==='p' ? G.plan : G.aiPlan; return pl && pl.r && pl.r.ev ? +pl.r.ev.apex.toFixed(2) : null; })(),
+      cy: (G.lastHit && G.lastHit.contact) ? +G.lastHit.contact[1].toFixed(2) : null,
+      cz: (G.lastHit && G.lastHit.contact) ? +G.lastHit.contact[2].toFixed(2) : null,
+      drive: (()=>{ const pl = who==='p' ? G.plan : G.aiPlan; return pl && pl.drive !== undefined ? +pl.drive.toFixed(2) : null; })(),
+      loft: (()=>{ const pl = who==='p' ? G.plan : G.aiPlan; return pl && pl.loft !== undefined ? +pl.loft.toFixed(2) : null; })(),
+      tgt: (()=>{ const pl = who==='p' ? G.plan : G.aiPlan; return pl && pl.target ? [+pl.target[0].toFixed(2), +pl.target[1].toFixed(2)] : null; })(),
+      // 正/反手 与「击球点相对身体的横向位置」：正手应为 +0.25~0.35，反手约 -0.10
+      bh:  (()=>{ const pl = who==='p' ? G.plan : G.aiPlan; return pl ? !!pl.bh : null; })(),
+      cx:  (G.lastHit && G.lastHit.contact) ? +G.lastHit.contact[0].toFixed(2) : null,
+      stx: (()=>{ const s = who==='p' ? VIS.stanceP : VIS.stanceA; return s ? +s[0].toFixed(2) : null; })(),
+      lat: (()=>{ const pl = who==='p' ? G.plan : G.aiPlan; return pl && pl.latW !== undefined ? +pl.latW.toFixed(2) : null; })(),
+      sx:  (()=>{ const pl = who==='p' ? G.plan : G.aiPlan; return pl && pl.sx !== undefined ? +pl.sx.toFixed(2) : null; })() });
+    if (G.shotLog.length > 40) G.shotLog.shift();
+  }
   if (who === 'a'){                        // AI 出球 → 玩家开始解算
     setTimeout(()=>computePlan(), 0);
   } else {
@@ -1325,6 +1704,10 @@ function pointTo(who, why){
   G.phase = 'point'; G.live = false;
   if (who==='p') G.score.p++; else G.score.a++;
   G.serveCount++;
+  if (!G.pointLog) G.pointLog = [];
+  G.pointLog.push({ who, why, pt:G.ptHits, n:(G.shotLog||[]).length,
+                    shots:(G.shotLog||[]).slice(-4) });
+  if (G.pointLog.length > 20) G.pointLog.shift();
   if (G.serveCount >= 2){ G.serveCount = 0; G.server = G.server==='p' ? 'a' : 'p'; }
   toast((who==='p'?'你':'AI') + ' 得分', why);
   G.letRun = 0;
@@ -1355,6 +1738,29 @@ function aiParamObj(){
            mu:0.55+0.3*d, grip:0.6+0.3*d, rest:0.78+0.1*d };
 }
 
+/* ── 正手 / 反手 判定 + 横向站位（"让位"到正确的击球区）──────────────
+   真实的正手击球点：持拍侧前方约 30cm（身体中线偏持拍手一侧，且在身前）。
+   真实的反手击球点：身前、略偏非持拍侧约 12cm（横打 / 推挡的击球区）。
+   旧逻辑让站位几乎跟着球走（goalX ≈ 0.86·cx），击球点只离身体中线 6cm，
+   既不像正手也不像反手 —— 这就是「正手回球不像真实」的根因。
+   判据用「球在台面上的横向位置」而不是当前站位，避免站位一动就正/反手翻转。 */
+const HX = who => (who === 'p' ? 1 : -1);          // 持拍侧在 X 轴上的符号
+const LAT_FH = 0.30, LAT_BH = -0.12, ST_XMAX = 1.12;
+function strokeSide(cx, who, curX, availT){
+  const hx = HX(who);
+  let bh = (cx * hx) < -0.08;                       // 球明显偏向非持拍侧 → 反手
+  let gx = cx - (bh ? LAT_BH : LAT_FH) * hx;       // 站位 = 击球点 − 横向让位量
+  if (Math.abs(gx) > ST_XMAX){                     // 让位会站出场外 → 改用反手
+    bh = true; gx = cx - LAT_BH * hx;
+  }
+  if (curX !== undefined && isFinite(curX)){       // 来不及横向让位 → 让位量打折扣
+    const room = Math.max(0.22, (Math.max(0.30, availT || 0.8) + 0.30) * 2.9);
+    gx = clamp(gx, curX - room, curX + room);
+  }
+  gx = clamp(gx, -ST_XMAX, ST_XMAX);
+  return { bh, gx, latW: (cx - gx) * hx };         // latW > 0 = 击球点在持拍侧
+}
+
 /* ══════════════════════════════════════════════════════════════════
    7. 玩家解算：击球点 + 方向 + 时机 + 力度 + 摩擦
    ══════════════════════════════════════════════════════════════════ */
@@ -1378,16 +1784,38 @@ function manualPlan(c, P){
 function computePlan(){
   if (!G.live || G.last === 'p') return;
   const P = paramObj();
-  const cd = findContact(G.st, -1, G.target, P);
+  let cd = findContact(G.st, -1, G.target, P);
   if (!cd){ G.plan = null; return; }
-  const stX0 = (VIS.stance && isFinite(VIS.stance[0])) ? VIS.stance[0] : 0.30;
+  const stX0 = (VIS.stance && isFinite(VIS.stance[0])) ? VIS.stance[0] : -0.10;
+  let ss = strokeSide(cd.c[0], 'p', stX0, cd.t);
+  let bh = ss.bh;
+  let target = G.target.slice();
+  // ── 接发球阶段：先定手段，再按手段取默认落点（摆短 / 拧长 / 挑斜线 / 高调顶底线）
+  if (G.auto && isReceive()){
+    if (!G.recvP.key){
+      const key = recvTech(P, G.st, cd.c, bh, recvLock);
+      G.recvP.key = key; G.recvP.name = (TECH[key]||TECH.drive).name;
+      const t = RECV_TGT[key];
+      if (t){
+        target = [t[0]+(Math.random()-0.5)*0.20, t[1]+(Math.random()-0.5)*0.10];
+        const cd2 = findContact(G.st, -1, target, P);
+        if (cd2) cd = cd2;                            // 按新落点重新选一个更好的接触点
+      }
+    }
+    G.stage = 'receive';
+  } else {
+    G.stage = (G.ptHits <= 0) ? 'serve' : 'rally';
+  }
+  // 落点变了 → 接触点也变了，按最终接触点重算站位与正/反手
+  ss = strokeSide(cd.c[0], 'p', stX0, cd.t); bh = ss.bh;
+  const opt = techOpt(P, G.st, bh, cd.c, G.recvP.key || recvLock);
   const sol = G.auto
-    ? faceAdjust(cd.c, solveShot(cd.c, -1, G.target, P, G.comp), G.target, P, G.comp,
-                 techOpt(P, G.st, (cd.c[0] - stX0) < -0.06, cd.c))
+    ? faceAdjust(cd.c, solveAuto(cd.c, -1, target, P), target, P, G.comp, opt, -1)
     : manualPlan(cd.c, P);
   if (!sol){ G.plan = null; return; }
-  G.plan = { c:cd.c, t:cd.t, t0:cd.t, born:performance.now(), ...sol,
-             target:G.target.slice(), evPath: predict(sol.r.st, 2.2, 1, true) };
+  G.plan = { c:cd.c, t:cd.t, t0:cd.t, born:performance.now(), ...sol, bh,
+             sx:ss.gx, latW:ss.latW,
+             target:target.slice(), evPath: predict(sol.r.st, 2.2, 1, true) };
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1409,7 +1837,8 @@ function aiPredictHit(){
         pb = T.top+1e-4;
       } else pb = bottom;
     } else pb = bottom;
-    if (bounced && !second && st[1] > 0.79 && st[1] < 1.42
+    // 上限抬到 2.05：高球（弧顶 >1.4）也要能截击，否则 AI 只能退守放弃 → "接不住高球"
+    if (bounced && !second && st[1] > 0.82 && st[1] < 2.05
         && st[2] > -2.45 && st[2] < -0.05 && Math.abs(st[0]) < 1.10){
       cands.push({ c:[st[0],st[1],st[2],st[3],st[4],st[5],st[6],st[7],st[8]], t });
     }
@@ -1419,7 +1848,7 @@ function aiPredictHit(){
   if (!cands.length) return null;
   // 舒适击球点：高度靠近弹起顶点、不过分贴端线、不要拉太开
   const apex = cands.reduce((m,x)=>Math.max(m, x.c[1]), 0);
-  const wantY = clamp(apex*0.92, 0.95, 1.20);
+  const wantY = clamp(apex*0.90, 1.00, 1.22);     // 偏好更高的击球点，便于平抽/扣杀而非挑高
   let best = null;
   for (const cd of cands){
     const s = Math.abs(cd.c[1] - wantY)*2.2
@@ -1444,20 +1873,44 @@ function aiThink(dt){
       moveTowards(pad.p, [clamp(G.st[0]*0.3,-0.8,0.8), 0.98, -1.72], 3.0*dt);
       return;
     }
-    const tx = clamp(-G.pp.p[0]*0.72 + (Math.random()-0.5)*(1.4-1.0*d), -0.62, 0.62);
-    const tz = 0.85 + Math.random()*0.38;     // 回球略深，避免过短
-    const sol = solveShot(hit.c, 1, [tx,tz], P, true);
+    let tx = clamp(-G.pp.p[0]*0.72 + (Math.random()-0.5)*(1.4-1.0*d), -0.62, 0.62);
+    let tz = 0.85 + Math.random()*0.38;     // 回球略深，避免过短
+    // AI 正/反手：AI 朝 +Z ⇒ 持拍侧在 -X。旧式用「球拍位置」比较，方向写反了，
+    // 会把持拍侧的球判成反手（于是正手球用反手拍型/握法去打，看起来很别扭）。
+    // 改用统一的「击球区」判据：与玩家同一套 strokeSide。
+    const curXa = (hAI && hAI.stance) ? hAI.stance[0] : 0.10;
+    const ssA = strokeSide(hit.c[0], 'a', curXa, hit.t);
+    const aiBh = ssA.bh;
+    // ── 接发球阶段：AI 也按来球旋转选手段，并用该手段的落点（每分独立 recvA）
+    let opt = null;
+    if (isReceive()){
+      G.recvA.key = G.recvA.key || recvTech(P, G.st, hit.c, aiBh, 'auto');
+      G.recvA.name = (TECH[G.recvA.key]||TECH.drive).name;
+      const t = RECV_TGT[G.recvA.key];
+      if (t){
+        tx = -t[0] + (Math.random()-0.5)*0.20;        // AI 在 +Z 半台 → 镜像
+        tz = -t[1] + (Math.random()-0.5)*0.10;
+      }
+      G.stage = 'receive';
+      opt = techOpt(P, G.st, aiBh, hit.c, G.recvA.key);
+    } else {
+      G.stage = (G.ptHits <= 0) ? 'serve' : 'rally';
+      opt = techOpt(P, G.st, aiBh, hit.c, 'auto');
+    }
+    let sol = solveAuto(hit.c, 1, [tx,tz], P);
+    if (sol && opt) sol = faceAdjust(hit.c, sol, [tx,tz], P, true, opt, 1) || sol;
     if (!sol){ moveTowards(pad.p, hit.c, (1.6+3.2*d)*dt); return; }
-    G.aiPlan = { c:hit.c.slice(), t:hit.t, t0:hit.t, born:performance.now(), ...sol };
+    G.aiPlan = { c:hit.c.slice(), t:hit.t, t0:hit.t, born:performance.now(), ...sol, bh:aiBh,
+                 sx:ssA.gx, latW:ssA.latW };
     pad.n = sol.n.slice();
   }
-  // 球已经明显飞过拍面仍未击中 → 放弃（本回合接不到，交给规则判分）
-  if (G.st[2] < G.aiPlan.c[2] - 0.30) return;
+  // 球已明显越过击球点（朝端线外飞去）且仍差很远 → 放弃；否则继续追（提高接球率）
+  if (G.aiPlan.c[2] < 0 && G.st[2] < G.aiPlan.c[2] - 0.45 && dist > 0.45) return;
 
   const tgt = G.aiPlan.c;
   const dist = Math.hypot(tgt[0]-pad.p[0], tgt[1]-pad.p[1], tgt[2]-pad.p[2]);
   // 越接近击球点移动越慢（到位后基本静止等球），避免"追着球跑"
-  const spd = (1.6 + 3.2*d) * dt * clamp(dist/0.35, 0.12, 1);
+  const spd = (2.6 + 4.4*d) * dt * clamp(dist/0.30, 0.15, 1);
   moveTowards(pad.p, tgt, spd);
   pad.n = G.aiPlan.n.slice();
 }
@@ -1511,16 +1964,22 @@ let faceTipT = 0;
 function toastFreezeFace(){
   const bar = $('frzbarTxt');
   if (!bar) return;
-  bar.innerHTML = `调拍面 · 倾角 <b>${G.P.tilt>0?'+':''}${G.P.tilt}°</b>（${G.P.tilt>0?'后仰':G.P.tilt<0?'前倾':'—'}） · 转向 <b>${G.P.face>0?'+':''}${G.P.face}°</b>`;
+  bar.innerHTML = `调拍面 · 倾角 <b>${G.P.tilt>0?'+':''}${G.P.tilt}°</b>（${G.P.tilt>0?'后仰':G.P.tilt<0?'前倾':'—'}） · 转向 <b>${G.P.face>0?'+':''}${G.P.face}°</b> · 拍柄<b>${G.P.roll>0?'+':''}${G.P.roll}°</b>`;
   frzBarTxt = 'face';
   clearTimeout(faceTipT);
   faceTipT = setTimeout(()=>{ frzBarTxt = ''; }, 900);   // 让状态条下一帧恢复
 }
 renderer.domElement.addEventListener('wheel', e=>{
   const cc = CAM[G.camMode];
+  if (e.shiftKey){                                    // Shift + 滚轮 = 转拍柄方向（绕拍面法线）
+    e.preventDefault();
+    setRoll(G.P.roll - (Math.sign(e.deltaY) || 1)*5);
+    toastFreezeFace();
+    return;
+  }
   if (cc.type === 'macro') cc.r = clamp(cc.r + e.deltaY*0.0007, 0.16, 1.60);   // 微距：贴脸缩放
   else                     cc.r = clamp(cc.r + e.deltaY*0.0022, 1.4, 8.0);
-}, { passive:true });
+});
 
 /* 点击台面 → 设置落点 */
 renderer.domElement.addEventListener('click', e=>{
@@ -1551,7 +2010,11 @@ addEventListener('keydown', e=>{
   if (e.key === 'e' || e.key === 'E'){
     const cc = CAM[G.camMode], tl = cc.type === 'macro' ? Math.PI : 1.3;
     cc.th = clamp(cc.th + 0.14, -tl, tl); }
-  if (e.key === 'g' || e.key === 'G'){ if (G.P.tilt || G.P.face){ setFace(0,0); toast('拍面归零','已恢复自动解算角度'); } }
+  if (e.key === 'g' || e.key === 'G'){
+    if (G.P.tilt || G.P.face || G.P.roll){ setFace(0,0); setRoll(0); toast('拍面归零','倾角 / 转向 / 拍柄方向 已恢复自动'); }
+  }
+  if (e.key === '['){ setRoll(G.P.roll - 10); toastFreezeFace(); }
+  if (e.key === ']'){ setRoll(G.P.roll + 10); toastFreezeFace(); }
   if (e.key === 'z' || e.key === 'Z'){ setFrzMode(!G.frz.on); }
   if (e.key === 'b' || e.key === 'B'){ setBH(playerBH === 'rpb' ? 'push' : 'rpb'); }
   if (e.key === 'm' || e.key === 'M'){ setAuto(!G.auto); }
@@ -1599,22 +2062,31 @@ function tryPaddle(pad, side, who, prev){
   if (who === 'p'){
     const plan = G.plan;
     if (plan){
-      const P = paramObj();
-      const b = basis(plan.n);
-      const [bT, bS] = brushOf(P);
-      const drive = plan.drive;
-      vp = [plan.n[0]*drive + b.up[0]*bT + b.right[0]*bS,
-            plan.n[1]*drive + b.up[1]*bT + b.right[1]*bS,
-            plan.n[2]*drive + b.up[2]*bT + b.right[2]*bS];
+      // 直接用解算器算好的出拍速度 vp（含技术摩擦），避免重推时方向/力度偏差导致不过网
+      if (plan.vp){ vp = [plan.vp[0], plan.vp[1], plan.vp[2]]; }
+      else {
+        const P = paramObj();
+        const b = basis(plan.n);
+        const [bT0, bS0] = brushOf(P);
+        const bT = plan.brush ? plan.brush[0] : bT0, bS = plan.brush ? plan.brush[1] : bS0;
+        const drive = plan.drive;
+        vp = [plan.n[0]*drive + b.up[0]*bT + b.right[0]*bS,
+              plan.n[1]*drive + b.up[1]*bT + b.right[1]*bS,
+              plan.n[2]*drive + b.up[2]*bT + b.right[2]*bS];
+      }
     } else { vp = [n[0]*6, n[1]*6+1.5, n[2]*6]; }
   } else {
     const plan = G.aiPlan;
     if (plan){
-      const P = aiParamObj(), b = basis(plan.n);
-      const [bT, bS] = brushOf(P);
-      vp = [plan.n[0]*plan.drive + b.up[0]*bT + b.right[0]*bS,
-            plan.n[1]*plan.drive + b.up[1]*bT + b.right[1]*bS,
-            plan.n[2]*plan.drive + b.up[2]*bT + b.right[2]*bS];
+      if (plan.vp){ vp = [plan.vp[0], plan.vp[1], plan.vp[2]]; }
+      else {
+        const P = aiParamObj(), b = basis(plan.n);
+        const [bT0, bS0] = brushOf(P);
+        const bT = plan.brush ? plan.brush[0] : bT0, bS = plan.brush ? plan.brush[1] : bS0;
+        vp = [plan.n[0]*plan.drive + b.up[0]*bT + b.right[0]*bS,
+              plan.n[1]*plan.drive + b.up[1]*bT + b.right[1]*bS,
+              plan.n[2]*plan.drive + b.up[2]*bT + b.right[2]*bS];
+      }
     } else { vp = [n[0]*6, n[1]*6+1.2, n[2]*6]; }
   }
   const P = who==='p' ? paramObj() : aiParamObj();
@@ -1946,16 +2418,41 @@ function updateCharacters(dt){
     // ── 时间轴：tc = 距出手还剩，rel = 出手后经过
     let tc = null, rel = null;
     if (plan && anyLive && G.last !== who && plan.t !== undefined) tc = Math.max(0, plan.t);
-    if (pad.hitAt){ const r0 = (performance.now()-pad.hitAt)/1000; if (r0 < 1.2) rel = r0; }
+    let relFromHit = false;
+    if (pad.hitAt){ const r0 = (performance.now()-pad.hitAt)/1000;
+                    if (r0 < 1.2){ rel = r0; relFromHit = true; } }
+    // 触球时刻兜底：即便没命中 / 没有 hitAt，也必须走完「随挥 → 复位」，
+    // 否则球拍会僵在接触点，等下一球时一次性弹回（0.5m 瞬移 = 抽搐）
+    if (tc !== null && tc <= 0.02){ if (!pad.tcZeroAt) pad.tcZeroAt = performance.now(); }
+    else pad.tcZeroAt = 0;
+    if (rel === null && pad.tcZeroAt){
+      const r2 = (performance.now() - pad.tcZeroAt)/1000;
+      if (r2 < 1.2) rel = r2;
+    }
+    // 触球前 0.28s 锁定挥拍目标：解算的接触点仍会微调，
+    // 而挥拍曲线在末段放大倍率极高，不锁定就会变成大幅瞬移
+    if (tc !== null && tc > 0.28) pad.pLock = null;
+    else if (tc !== null && !pad.pLock) pad.pLock = pad.p ? pad.p.slice() : null;
+    if (tc === null) pad.pLock = null;
+    const cp = pad.pLock || pad.p;                 // 实际用于挥拍的接触点
 
     // ── 站位（含自动退台）：出手点越远离球网，站位越靠后
     let goalX, goalZ;
     const latOff = (who==='p' ? (G.lateralOff||0) : 0);   // 手动左右移动（A/D）
     if (plan && anyLive && G.last !== who){
-      goalX = clamp(plan.c[0]*0.86 + latOff, -1.10, 1.10);
+      // 站位 = 解算好的「让位点」：把击球点放到正手区（持拍侧 +30cm）或反手区（−12cm）
+      goalX = clamp((plan.sx !== undefined ? plan.sx : plan.c[0]*0.86) + latOff, -1.12, 1.12);
       goalZ = clamp(Math.abs(plan.c[2]) + 0.35 + stanceBias(who), 1.42, 3.0);
+      pad.hold = [goalX - latOff, goalZ];     // 锁定本拍站位（不含手动偏移 / 未带方向符号）
+    } else if (pad.hold && rel !== null && rel < 1.00){
+      // 出手后立刻把站位弹回待机位（0.5m / 5m·s⁻¹ ≈ 0.1s），而随挥还在向前展开
+      // ⇒ 手臂瞬间被拉到 0.76m（橡皮筋）。随挥期间必须保持本拍站位，之后再收。
+      goalX = clamp(pad.hold[0] + latOff, -1.12, 1.12);
+      goalZ = pad.hold[1];
     } else {
-      goalX = (who==='p' ? 0.30 : -0.30) + latOff;
+      pad.hold = null;
+      // 待机位略偏反手侧（正手覆盖面更大），符合真实准备姿势
+      goalX = -0.10*(who==='p' ? 1 : -1) + latOff;
       goalZ = clamp(1.92 + stanceBias(who), 1.42, 3.0);
     }
     goalZ *= dirB;
@@ -1967,7 +2464,9 @@ function updateCharacters(dt){
     // ── 正手 / 反手：击球点在持拍手一侧 = 正手；越过身体中线到另一侧 = 反手
     const refX = (plan && anyLive && G.last !== who) ? plan.c[0] : pad.p[0];
     const lat  = (refX - goalX) * (who === 'p' ? 1 : -1);
-    const bh   = lat < -0.06;
+    // 正/反手以解算时锁定的结果为准（不再每帧按站位重判 → 不会来回翻转）
+    const bh   = (plan && anyLive && G.last !== who && plan.bh !== undefined)
+                 ? !!plan.bh : (lat < -0.06);
     const sw   = bh ? -1 : 1;                              // 反手时挥拍方向左右互换
 
     // ── 技术 / 拍型（自动）：按来球旋转 + 出球参数切换。
@@ -1991,29 +2490,40 @@ function updateCharacters(dt){
     let pos, nv = pad.n.slice();
     const clock = performance.now()/1000;
     const sway  = Math.sin(clock*1.55 + (who==='p'?0:1.3))*0.020;   // 待机微动，避免僵硬
-    const base  = [goalX, 0, goalZ];
+    // 球拍锚在「身体实际站位」（平滑跟随）而不是站位目标点：
+    // 目标点会随新来球瞬间跳变，若直接用会让球拍相对身体猛甩（抽搐）
+    const base  = [H.stance[0], 0, H.stance[1]];
     const idle  = vadd(vadd(base.slice(), vmul(R1, bh ? -0.17 : 0.25)), vmul(F, 0.20));
     idle[1] = 0.95 + sway - 0.07*crouch;
     if (plan && anyLive && G.last !== who){                          // 预备时提前朝来球方向让位
       const toC = vnorm(vsub(plan.c, [goalX, 1.0, goalZ]));
       idle[0] += toC[0]*0.10; idle[2] += toC[2]*0.10;
     }
-    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.30)), vmul(F, 0.10))   // 横打：收到腹前偏非持拍侧
-                  : vadd(vadd(base.slice(), vmul(R1,  0.40)), vmul(F,-0.16));  // 正手：引到持拍侧后下方
-    bs[1] = (T.hf > 0.5 ? 1.02 : 0.80) - 0.06*crouch - (T.hf > 0.5 ? 0 : 0.16*clamp(P.spin/100,0,1));
+    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.26)), vmul(F, 0.08))   // 横打：收到腹前偏非持拍侧
+                  : vadd(vadd(base.slice(), vmul(R1,  0.34)), vmul(F,-0.10));  // 正手：引到持拍侧后下方
+    // 引拍高度必须贴着击球点（攻/拉/扣略低于球、搓/挑略高于球）。
+    // 旧式写死 0.80m，而肩高 1.35m ⇒ 垂直差 0.65m，身体只会水平前倾补不了垂直差，
+    // 前臂胶囊被拉长到 1.5 倍 —— 这就是"正手回球不像真实"的直接观感来源。
+    const bsY = (T.hf > 0.5) ? clamp(cy + 0.06, 0.92, 1.32)          // 搓/挑：球上方下切
+                             : clamp(cy - 0.14, 0.86, 1.46);          // 攻/拉/扣：球下方上挥
+    bs[1] = bsY - 0.06*crouch - (T.hf > 0.5 ? 0 : 0.10*clamp(P.spin/100,0,1));
     const HITW = 0.46;                                     // 引拍 → 触球 的时长
     const pwK  = clamp(P.power/100, 0, 1);
-    if (tc !== null){
+    if (tc !== null && tc > 0.02){
       const u = clamp((1.15 - tc)/0.70, 0, 1);             // 提前 1.15s 从预备位走向引拍位
       const pre = vlerp(idle, bs, u*u*(3-2*u));
-      pos = tc < HITW ? vlerp(pre, pad.p.slice(), Math.pow(1 - tc/HITW, 1.8 + 1.7*pwK)) : pre;
-    } else if (rel !== null && pad.hitPos){
+      pos = tc < HITW ? vlerp(pre, cp.slice(), Math.pow(1 - tc/HITW, 1.8 + 1.7*pwK)) : pre;
+    } else if (rel !== null){
+      // 只有真的打到球才从 hitPos 起手；未命中时从当前接触点起手（否则会瞬移到上一拍的旧位置）
+      const hPos = (relFromHit && pad.hitPos && pad.hitPos.length) ? pad.hitPos : cp;
       const nH  = vnorm(pad.hitN && pad.hitN.length ? pad.hitN : nv);
-      const ft  = vadd(vadd(pad.hitPos.slice(), vmul(nH, 0.30*T.swing)), vmul(R1, -0.34*T.swing*sw));
+      const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.30*T.swing)), vmul(R1, -0.34*T.swing*sw));
       ft[1] += 0.28*T.swing;
       const g  = Math.pow(clamp(rel/0.55,0,1), 0.55);      // 随挥展开
       const bk = clamp((rel-0.55)/0.50, 0, 1);             // 复位收回
-      pos = vlerp(vlerp(pad.hitPos.slice(), ft, g), idle, bk*bk*(3-2*bk));
+      pos = vlerp(vlerp(hPos.slice(), ft, g), idle, bk*bk*(3-2*bk));
+    } else if (tc !== null){
+      pos = cp.slice();                                    // 触球那一两帧：精确落在物理接触点
     } else pos = idle;
     // 轻微软跟随（去掉抖动），但触球瞬间必须精确落在物理接触点上
     if (pad.vpos && (tc === null || tc > 0.03)) pos = vlerp(pad.vpos, pos, Math.min(1, dt*22));
@@ -2026,8 +2536,14 @@ function updateCharacters(dt){
     // 甩腕：正手是内旋加速，反手（横打）是外展甩出 → 方向相反
     const snap  = bh ? { spin:-snap0.spin*wk, side:-snap0.side*wk }
                      : { spin: snap0.spin*wk, side: snap0.side*wk };
-    const q = paddleQuat(nV, styleI, snap, 0.10*charCoil[who]*(bh?-1:1), { pose, headDir });
-    if (who === 'p') VIS.wrist = snap;
+    const uRoll = (who === 'p' ? (G.P.roll || 0) : 0) * Math.PI/180;   // 手动「拍柄方向」
+    const q = paddleQuat(nV, styleI, snap, 0.10*charCoil[who]*(bh?-1:1), { pose, headDir, userRoll: uRoll });
+    if (who === 'p'){
+      VIS.wrist = snap;
+      // 拍头世界方向（局部 +Y），供 HUD 读出「朝上 / 朝外上 / 朝前下」等
+      _hv.set(0,1,0).applyQuaternion(q);
+      if (G.padPoseP) G.padPoseP.headY = [_hv.x, _hv.y, _hv.z];
+    }
 
     mesh.position.set(pos[0], pos[1], pos[2]);
     mesh.quaternion.copy(q);
@@ -2042,8 +2558,9 @@ function updateCharacters(dt){
     const anchor = updateHuman(H, {
       facing:F, stance:[goalX, goalZ], speed: 2.4 + (plan?2.6:0),
       pos, n:nv, crouch, coil: charCoil[who], look: lookTarget,
-      style: styleI, pose, bh, sw,
-      extraRoll: 0.10*charCoil[who]*(bh?-1:1)           // 握法 → 拍柄朝向跟着转
+      style: styleI, pose, bh, sw, who,
+      extraRoll: 0.10*charCoil[who]*(bh?-1:1),          // 握法 → 拍柄朝向跟着转
+      userRoll: uRoll                                   // 手动「拍柄方向」→ 手腕/握把一起转
     }, dt);
     VIS['head'+(who==='p'?'P':'A')] = anchor.head;
     VIS['stance'+(who==='p'?'P':'A')] = [H.stance[0], H.stance[1]];
@@ -2174,9 +2691,12 @@ function updateFreezeVisual(){
   const poseF = padPose(padStyleOf('p'), 'p', bhF, techF);
   const headF = techHeadDir([0,0,-1], [1,0,0], TECH[techF] || TECH.drive, bhF);
   G.padPoseP = { bh:bhF, pose:poseF, style:padStyleOf('p'), tech:techF, headDir:headF };
-  const q = paddleQuat(nV, padStyleOf('p'), null, 0, { pose: poseF, headDir: headF });
+  const q = paddleQuat(nV, padStyleOf('p'), null, 0,
+    { pose: poseF, headDir: headF, userRoll: (G.P.roll || 0)*Math.PI/180 });
   pPad.position.set(padP[0], padP[1], padP[2]);
   pPad.quaternion.copy(q);
+  _hv.set(0,1,0).applyQuaternion(q);
+  G.padPoseP.headY = [_hv.x, _hv.y, _hv.z];       // 拍头世界方向 → HUD 显示朝向
 
   // ── 拍面：黄环 + 半透明盘 + 法线 + 竖直参考（读倾角）
   const showFace = UI ? UI.k_face.checked : true;
@@ -2250,7 +2770,7 @@ function updateFreezeVisual(){
    ══════════════════════════════════════════════════════════════════ */
 const $ = id => document.getElementById(id);
 const UI = {};
-['s_power','s_spin','s_side','s_time','s_hp','s_mu','s_grip','s_rest','s_assist','s_ai','s_stance','s_tilt','s_face']
+['s_power','s_spin','s_side','s_time','s_hp','s_mu','s_grip','s_rest','s_assist','s_ai','s_stance','s_tilt','s_face','s_roll']
   .forEach(k=>UI[k]=$(k));
 ['k_comp','k_force','k_in','k_out','k_body','k_face','k_swing','k_autobest','k_autoserve','k_trail1'].forEach(k=>UI[k]=$(k));
 
@@ -2262,6 +2782,8 @@ function bind(){
     s_ai: v=>G.P.ai=+v, s_stance: v=>G.stanceOff=(+v)/100,
     s_tilt: v=>G.P.tilt=+v, s_face: v=>G.P.face=+v,
   };
+  // 拍柄方向：绕拍面法线自转 —— 只改变拍头/拍柄朝向，不改变拍面法线与出球，无需重解
+  UI.s_roll.addEventListener('input', ()=>setRoll(+UI.s_roll.value));
   for (const k in map){
     const el = UI[k];
     el.addEventListener('input', ()=>{
@@ -2284,14 +2806,37 @@ function bind(){
   // 技术 / 拍型按钮（自动 或 手动锁定）
   {
     const tb = $('techbtns');
-    const keys = ['', 'loop', 'drive', 'smash', 'chop', 'push'];
-    keys.forEach(k=>{
+    TECH_KEYS.forEach(k=>{
       const b = document.createElement('button');
       b.textContent = k ? TECH[k].name : '自动';
       b.onclick = ()=>setTech(k);
       tb.appendChild(b);
     });
     syncTechUI();
+  }
+  // 发球类型按钮（随机 或 指定一种）
+  {
+    const tb = $('servebtns');
+    [['auto','随机'], ...SERVE_KEYS.map(k=>[k, SERVES[k].name])].forEach(([k,label])=>{
+      const b = document.createElement('button');
+      b.textContent = label; b.dataset.k = k;
+      b.title = (k === 'auto') ? '每球随机变化' : SERVES[k].desc;
+      b.onclick = ()=>setServe(k);
+      tb.appendChild(b);
+    });
+    syncServeUI();
+  }
+  // 接发球手段按钮（自动 或 指定一种）
+  {
+    const tb = $('recvbtns');
+    RECV_UI.forEach(k=>{
+      const b = document.createElement('button');
+      b.textContent = k ? TECH[k].name : '自动'; b.dataset.k = k || 'auto';
+      b.title = k ? TECH[k].desc : '按来球自动选择';
+      b.onclick = ()=>setRecv(k || 'auto');
+      tb.appendChild(b);
+    });
+    syncRecvUI();
   }
   $('b_frz').onclick    = ()=>setFrzMode(!G.frz.on);
   $('b_frznow').onclick = ()=>frzNow();
@@ -2337,6 +2882,7 @@ function syncLabels(){
   const vs = $('v_stance'); if (vs) vs.textContent = ((G.stanceOff||0)*100).toFixed(0) + 'cm';
   const vt = $('v_tilt'); if (vt) vt.textContent = (G.P.tilt>0?'后仰+':G.P.tilt<0?'前倾-':'') + Math.abs(G.P.tilt).toFixed(0) + '°';
   const vf = $('v_face'); if (vf) vf.textContent = (G.P.face>0?'右转+':G.P.face<0?'左转-':'') + Math.abs(G.P.face).toFixed(0) + '°';
+  const vr = $('v_roll'); if (vr) vr.textContent = (G.P.roll>0?'+':'') + Math.round(G.P.roll) + '°';
 }
 function syncTarget(){
   const z = G.target[1], x = G.target[0];
@@ -2367,6 +2913,23 @@ function spinName(st, sp){
   if (Math.abs(top) > 8) p.push(top > 0 ? '上旋' : '下旋');
   if (Math.abs(sd)  > 8) p.push(sd  > 0 ? '右侧旋' : '左侧旋');
   return p.length ? p.join(' + ') : '基本无旋';
+}
+/* 技术名称链路：发球 → 接发球 → 回球 … 己方 / 对手分色，用 → 串联 */
+function renderChain(){
+  const el = document.getElementById('chainTxt');
+  if (!el) return;
+  const chain = G.chain || [];
+  if (!chain.length){ el.textContent = '—'; return; }
+  const frag = document.createDocumentFragment();
+  chain.forEach((c, i)=>{
+    if (i) { const a = document.createElement('span'); a.className='arrow'; a.textContent='→'; frag.appendChild(a); }
+    const s = document.createElement('span');
+    s.className = 'ck ' + (c.who === 'p' ? 'p' : 'a');
+    s.textContent = c.name;
+    frag.appendChild(s);
+  });
+  el.textContent = '';
+  el.appendChild(frag);
 }
 function updateHUD(){
   const st = G.st, F = forces(st);
@@ -2404,6 +2967,19 @@ function updateHUD(){
   $('r_fa').innerHTML  = f1(Math.hypot(ax,ay,az).toFixed(1),'m/s²');
   $('r_fsum').textContent = `Σ ${Math.hypot(ax,ay,az).toFixed(1)} m/s²`;
 
+  // 回合阶段 / 本板技术
+  {
+    const stageTxt = { serve:'发球', receive:'接发球', rally:'相持' };
+    const st = G.stage || (G.phase === 'play' ? '' : '');
+    const who = G.last === 'p' ? '我方' : G.last === 'a' ? '对手' : '';
+    $('r_stage').textContent = st
+      ? (stageTxt[st] || '—') + (who ? ' · ' + who + ((st==='serve')?'发球':'回球') : '')
+      : (G.phase === 'ready' ? '待发球' : '—');
+    const tk = (G.plan && G.plan.tech) ? G.plan.tech : (G.recvP.key || G.recvKey || '');
+    $('r_tech').textContent = tk && TECH[tk] ? TECH[tk].name
+      : (techLock && TECH[techLock]) ? TECH[techLock].name
+      : (G.lastServe && st === 'serve') ? G.lastServe.name + '（发球）' : '—';
+  }
   // 解算输出
   const p = G.plan;
   if (p){
@@ -2437,7 +3013,8 @@ function updateHUD(){
     if (p.evPath.bounces){
       const L = p.evPath.landings[0];
       $('r_lp').innerHTML = f1(`${L[0].toFixed(2)}, ${L[1].toFixed(2)}`,'x,z');
-      const e = Math.hypot(L[0]-G.target[0], L[1]-G.target[1]);
+      const Lt = (p.target && p.target.length) ? p.target : G.target;
+      const e = Math.hypot(L[0]-Lt[0], L[1]-Lt[1]);
       $('r_err').innerHTML = `<span class="${e<0.12?'go':'ng'}">${(e*100).toFixed(1)} cm</span>`;
     } else { $('r_lp').textContent='未落台'; $('r_err').innerHTML='<span class="ng">—</span>'; }
     let msg = '';
@@ -2491,7 +3068,7 @@ function updateHUD(){
 }
 
 /* ── 击球定格 · 拍面微距的读数 ── */
-const FZ = ['f_on','f_hd','f_tec','f_face','f_nrm','f_in','f_ax','f_w','f_wt','f_slip',
+const FZ = ['f_on','f_hd','f_tec','f_face','f_grip','f_nrm','f_in','f_ax','f_w','f_wt','f_slip',
             'f_tm','f_ang','f_pw','f_out','f_lp','f_ok'];
 function updateFreezeHUD(){
   const f = G.frz, on = f && f.active;
@@ -2510,6 +3087,12 @@ function updateFreezeHUD(){
   if (pp) $('f_tec').innerHTML = `<span class="hl2">${pp.pose.name}</span> · ` +
     `${pp.pose.face} <em>${pp.pose.hf > 0.5 ? '拍头朝前' : (pp.pose.ho > 0 ? '拍头朝外上' : '拍头朝上')}</em>`;
   else $('f_tec').textContent = '—';
+  if (pp && pp.headY){
+    const d = headDesc(pp.headY);
+    const rd = Math.round(G.P.roll || 0);
+    $('f_grip').innerHTML = `<span class="hl2">朝${d||'—'}</span>` +
+      (rd ? ` <em>拍柄方向 ${rd>0?'+':''}${rd}°</em>` : '');
+  } else $('f_grip').textContent = '—';
   const n = sol ? sol.n : G.pp.n, nL = vlen(n) || 1;
   const tilt = Math.asin(clamp(n[1]/nL,-1,1))*180/Math.PI;
   const side = Math.atan2(n[0], Math.abs(n[2]))*180/Math.PI;
@@ -2577,8 +3160,9 @@ function updateFreezeHUD(){
 /* ══════════════════════════════════════════════════════════════════
    12.5 球员角色：骨架 rig + 二骨 IK + 步法 + 挥拍 / 手腕动作
    ══════════════════════════════════════════════════════════════════ */
-const VmY = new THREE.Vector3(0,-1,0), VpZ = new THREE.Vector3(0,0,1);
+const VmY = new THREE.Vector3(0,-1,0), VpZ = new THREE.Vector3(0,0,1), VpY = new THREE.Vector3(0,1,0), VpX = new THREE.Vector3(1,0,0);
 const _b1 = new THREE.Vector3(), _b2 = new THREE.Vector3(), _b3 = new THREE.Vector3();
+const _hq1 = new THREE.Quaternion(), _hq2 = new THREE.Quaternion();
 
 const vsub  = (a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
 const vadd  = (a,b,s=1)=>[a[0]+b[0]*s, a[1]+b[1]*s, a[2]+b[2]*s];
@@ -2598,19 +3182,22 @@ const vrotAxis = (v, ax, ang)=>{
    局部 +Y = 拍头方向（竖直向上绕法线转 roll → 朝持拍手外侧）
    局部 +X = Y × Z（右手系） */
 const _pqM = new THREE.Matrix4(), _pqX = new THREE.Vector3(), _pqY = new THREE.Vector3(), _pqZ = new THREE.Vector3();
+const _hv = new THREE.Vector3();                  // 临时：取拍头世界方向
 function paddleQuat(nV, style, snap, extraRoll, opt){
   const pose  = (opt && opt.pose) || padPose(style, 'p', false);
   const roll  = pose.roll + (extraRoll || 0);
+  const Z     = pose.flip ? vmul(nV, -1) : nV;       // 拍面正面：翻拍时朝自己
   let rt = vcross([0,1,0], nV); if (vlen(rt) < 1e-3) rt = vcross([1,0,0], nV);
   rt = vnorm(rt);
   const up0 = vnorm(vcross(nV, rt));
-  let Y = vrotAxis(up0, nV, roll);                   // 默认（兜底）：竖直向上绕法线转 roll
+  let Y = vrotAxis(up0, Z, roll);                    // 默认（兜底）：竖直向上绕法线转 roll
   const hd = opt && opt.headDir;                     // 技术拍型：拍头朝指定方向（投影到拍面内）
   if (hd){
     const pr = vsub(hd, vmul(nV, hd[0]*nV[0] + hd[1]*nV[1] + hd[2]*nV[2]));
     if (vlen(pr) > 0.22) Y = vnorm(pr);              // 与法线夹角足够大才用，否则回退 roll
   }
-  const Z = pose.flip ? vmul(nV, -1) : nV;           // 拍面正面：翻拍时朝自己
+  const uRoll = (opt && opt.userRoll) || 0;          // 手动「拍柄方向」：绕拍面法线再转（只改拍头朝向）
+  if (uRoll) Y = vrotAxis(Y, Z, uRoll);
   const X = vnorm(vcross(Y, Z));
   const Yf = vnorm(vcross(Z, X));
   _pqM.makeBasis(_pqX.set(X[0],X[1],X[2]), _pqY.set(Yf[0],Yf[1],Yf[2]), _pqZ.set(Z[0],Z[1],Z[2]));
@@ -2627,7 +3214,8 @@ function paddleGripUp(nV, style, extraRoll, opt){
   let rt = vcross([0,1,0], nV); if (vlen(rt) < 1e-3) rt = vcross([1,0,0], nV);
   rt = vnorm(rt);
   const upV = vnorm(vcross(nV, rt));
-  return vrotAxis(upV, nV, pose.roll + (extraRoll || 0));
+  const Z   = pose.flip ? vmul(nV, -1) : nV;         // 与 paddleQuat 同轴，保证拍柄跟着拍面一起转
+  return vrotAxis(upV, Z, pose.roll + (extraRoll || 0) + ((opt && opt.userRoll) || 0));
 }
 const vlerp = (a,b,k)=>[a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k];
 
@@ -2650,6 +3238,27 @@ function move2(cur, tgt, step){
   const s = Math.min(step, L);
   cur[0]+=dx/L*s; cur[1]+=dz/L*s;
 }
+/* 站位移动（绕开球台）：路径若穿过台面区，先横向绕到台侧 → 沿台侧纵向绕 → 再进入目标 */
+// 必须小于合法站位的最小深度（goalZ 下限 1.42），否则近台站位会被误判为"要穿桌"而反复绕行
+const TBL_HX = 0.82, TBL_HZ = 1.40;                 // 台面 0.7625×1.3725 + 极小余量
+function segCrossTable(a, b){
+  for (let i=0;i<=10;i++){
+    const t = i/10, x = a[0]+(b[0]-a[0])*t, z = a[1]+(b[1]-a[1])*t;
+    if (Math.abs(x) < TBL_HX && Math.abs(z) < TBL_HZ) return true;
+  }
+  return false;
+}
+function moveStance(cur, tgt, step){
+  let goal = tgt;
+  if (segCrossTable(cur, tgt)){
+    const sx  = cur[0] >= 0 ? 1 : -1;
+    const wx  = sx * (TBL_HX + 0.30);
+    if (Math.abs(cur[0]) < TBL_HX + 0.20)       goal = [wx, cur[1]];   // ① 横向绕出台侧
+    else if (Math.abs(cur[1] - tgt[1]) > 0.08)  goal = [wx, tgt[1]];   // ② 沿台侧纵向绕行
+    else                                        goal = tgt;            // ③ 进入目标点
+  }
+  move2(cur, goal, step);
+}
 
 /* 骨段：几何体原点在关节处，沿局部 -Y 延伸，便于按 (from,to) 对齐 */
 function bone(parent, r0, r1, len, mat){
@@ -2667,40 +3276,135 @@ function setBone(mesh, from, to){
   mesh.scale.set(1, L/mesh.userData.base, 1);
 }
 
-function buildHuman(skin, shirt, shorts, shoe, rightHanded){
+/* 帽徽贴图（M / L）：画布画字，避免加载字体 */
+function capEmblemTex(letter, bg){
+  const cv = document.createElement('canvas'); cv.width = cv.height = 96;
+  const g = cv.getContext('2d');
+  g.clearRect(0,0,96,96);
+  g.beginPath(); g.arc(48,48,45,0,Math.PI*2); g.fillStyle = '#ffffff'; g.fill();
+  g.fillStyle = bg; g.font = 'bold 64px system-ui,-apple-system,"PingFang SC",sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(letter, 48, 53);
+  const t = new THREE.CanvasTexture(cv);
+  if (THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/* Q 版卡通人物（马里奥网球风）：大头 + 圆润色块 + 五官 + 白手套 + 圆头鞋 + 描边。
+   ghost=true 时己方整体半透明（便于看清球与球拍），但持拍手（手套）保持不透明。 */
+function buildHuman(skin, shirt, shorts, shoe, rightHanded, ghost, letter, startZ){
   const root = new THREE.Group(); scene.add(root);
-  const M = (c,r)=> new THREE.MeshStandardMaterial({ color:c, roughness:r, metalness:0.02 });
-  const mSkin=M(skin,0.72), mShirt=M(shirt,0.92), mShort=M(shorts,0.92), mShoe=M(shoe,0.8);
-  const P = { root, rightHanded };
+  const GH = !!ghost;
+  // ghost：身体半透明；depthWrite=true 让"最近表面"统一着色，避免内部五官叠影透出
+  const gm = c => GH ? toonMat(c, { transparent:true, opacity:0.26, depthWrite:true })
+                     : toonMat(c);
+  const mSkin = gm(skin), mShirt = gm(shirt), mShort = gm(shorts), mShoe = gm(shoe);
+  const mGlove = GH ? toonMat(0xfdfdf8,{transparent:true,opacity:0.40,depthWrite:true}) : toonMat(0xfdfdf8);
+  const mHit   = toonMat(0xfdfdf8);              // 持拍手：始终不透明
+  const mDark  = gm(0x33261a), mHair = gm(0x4a2f1c), mCheek = gm(0xff8d8d);
+  const P = { root, rightHanded, ghost: GH };
 
-  P.hips = new THREE.Mesh(new THREE.CapsuleGeometry(0.115,0.10,4,14), mShort);
+  /* ── 髋 / 躯干（圆润胶囊）── */
+  P.hips = new THREE.Mesh(new THREE.CapsuleGeometry(0.140,0.10,4,16), mShort);
   P.hips.castShadow = true; root.add(P.hips);
-  P.torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.132,0.26,4,14), mShirt);
+  P.torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.155,0.30,4,16), mShirt);
   P.torso.castShadow = true; root.add(P.torso);
+  // 领口 / 腰带：绕体轴旋转对称（ghost 省略，避免半透明叠影）
+  if (!GH){
+    const ring = (r, tube, mat, y) => {
+      const m = new THREE.Mesh(new THREE.TorusGeometry(r,tube,8,20), mat);
+      m.rotation.x = Math.PI/2; m.position.y = y; P.torso.add(m); return m;
+    };
+    ring(0.116, 0.030, toonMat(shirt), -0.180);    // 领口
+    ring(0.156, 0.024, toonMat(0xffd23f), 0.045);  // 腰带（短裤腰黄环）
+    ring(0.150, 0.026, toonMat(shorts),  0.090);   // 裤腰
+  }
 
+  /* ── 大头（头身比约 1:2.4）── */
   P.head = new THREE.Group(); root.add(P.head);
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.104,20,16), mSkin);
-  skull.scale.set(1,1.09,1.02); skull.castShadow = true; P.head.add(skull); P.skull = skull;
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.107,20,14,0,Math.PI*2,0,Math.PI*0.52), M(0x14161c,0.95));
-  cap.position.y = 0.012; cap.scale.set(1,1.09,1.02); P.head.add(cap);
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.019,0.045,8), mSkin);
-  nose.rotation.x = Math.PI/2; nose.position.set(0,-0.006,0.104); P.head.add(nose);
-  // 号码/队标色条，便于区分双方
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.19,0.035,0.20), M(shirt===0xdc2626?0x7f1d1d:0x1e3a8a,0.9));
-  stripe.position.y = 0.10; P.torso.add(stripe);
+  const R = 0.150;
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(R,24,18), mSkin);
+  skull.scale.set(1,1.03,0.99); skull.castShadow = true; P.head.add(skull); P.skull = skull;
+  // 帽子（上半球）+ 帽檐（压扁椭球，只在前方露出）
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(R+0.010,22,14,0,Math.PI*2,0,Math.PI*0.40), gm(shirt));
+  cap.position.y = 0.012; cap.scale.set(1,1.03,0.99); P.head.add(cap);
+  const brim = new THREE.Mesh(new THREE.SphereGeometry(0.098,16,10), gm(shirt));
+  brim.scale.set(1.58,0.28,1.08); brim.position.set(0,0.066,0.100); P.head.add(brim);
+  // 帽徽（M / L）：ghost 省略（贴花半透明会从脑后透出）
+  if (letter && !GH){
+    const em = new THREE.Mesh(new THREE.CircleGeometry(0.047,22),
+      new THREE.MeshBasicMaterial({ map: capEmblemTex(letter, '#'+new THREE.Color(shirt).getHexString()),
+        transparent:true, opacity: GH ? 0.62 : 1, depthWrite:false }));
+    em.position.set(0,0.082,0.128); em.rotation.x = -0.52; P.head.add(em);
+  }
+  // 面部细节：ghost 只保留眼白+瞳孔（其余会从半透明头部里叠影透出）
+  for (const s of [-1, 1]){
+    const w = new THREE.Mesh(new THREE.SphereGeometry(0.036,14,10), gm(0xffffff));
+    w.scale.set(0.95,1.32,0.60); w.position.set(s*0.053, 0.026, 0.127); P.head.add(w);
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.0195,12,9), mDark);
+    p.position.set(s*0.053, 0.028, 0.149); P.head.add(p);
+    if (GH) continue;
+    const hi = new THREE.Mesh(new THREE.SphereGeometry(0.0075,8,6), toonMat(0xffffff));
+    hi.position.set(s*0.060, 0.043, 0.149); P.head.add(hi);
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.052,0.013,0.014), mHair);
+    brow.position.set(s*0.056, 0.084, 0.120); brow.rotation.z = -s*0.20; P.head.add(brow);
+  }
+  // 鼻子 / 胡子 / 微笑 / 腮红 / 耳朵
+  if (!GH){
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.033,14,10), mSkin);
+    nose.scale.set(1,0.92,1.06); nose.position.set(0,-0.010,0.146); P.head.add(nose);
+    for (const s of [-1, 1]){
+      const mu = new THREE.Mesh(new THREE.BoxGeometry(0.050,0.016,0.020), mHair);
+      mu.position.set(s*0.031,-0.042,0.138); mu.rotation.z = -s*0.24; P.head.add(mu);
+    }
+    const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.030,0.0095,8,16,Math.PI), mDark);
+    mouth.rotation.set(0.36, 0, Math.PI);          // 翻转成微笑 ∪
+    mouth.position.set(0,-0.070,0.126); P.head.add(mouth);
+    for (const s of [-1, 1]){
+      const ch = new THREE.Mesh(new THREE.SphereGeometry(0.031,12,9), mCheek);
+      ch.scale.set(1,0.62,0.34); ch.position.set(s*0.105,-0.024,0.100); P.head.add(ch);
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.033,12,9), mSkin);
+      ear.scale.set(0.55,1.05,0.80); ear.position.set(s*0.145,0.005,0.005); P.head.add(ear);
+    }
+  }
 
-  P.armU = [ bone(root,0.049,0.043,0.295,mShirt), bone(root,0.049,0.043,0.295,mShirt) ];
-  P.armF = [ bone(root,0.042,0.037,0.255,mSkin),  bone(root,0.042,0.037,0.255,mSkin)  ];
-  P.hand = [ bone(root,0.036,0.033,0.085,mSkin),  bone(root,0.036,0.033,0.085,mSkin)  ];
-  P.legU = [ bone(root,0.072,0.060,0.44,mShort),  bone(root,0.072,0.060,0.44,mShort)  ];
-  P.legF = [ bone(root,0.058,0.046,0.40,mSkin),   bone(root,0.058,0.046,0.40,mSkin)   ];
+  /* ── 四肢（加粗，卡通圆润）── */
+  P.armU = [ bone(root,0.066,0.058,0.285,mShirt), bone(root,0.066,0.058,0.285,mShirt) ];
+  P.armF = [ bone(root,0.058,0.050,0.245,mSkin),  bone(root,0.058,0.050,0.245,mSkin)  ];
+  P.hand = [ bone(root,0.052,0.048,0.090,mSkin),  bone(root,0.052,0.048,0.090,mSkin)  ];
+  P.neck = bone(root,0.058,0.052,0.26,mSkin);    // 脖子：填满头与躯干之间的空隙
+  P.legU = [ bone(root,0.090,0.076,0.42,mShort),  bone(root,0.090,0.076,0.42,mShort)  ];
+  P.legF = [ bone(root,0.076,0.062,0.38,mSkin),   bone(root,0.076,0.062,0.38,mSkin)   ];
+
+  // 关节球：肩 / 肘 / 膝，遮住骨段接缝
+  const ball = (r, mat) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r,14,10), mat); root.add(m); return m; };
+  P.jSh = [ ball(0.074,mShirt), ball(0.074,mShirt) ];
+  P.jEl = [ ball(0.060,mSkin),  ball(0.060,mSkin)  ];
+  P.jKn = [ ball(0.084,mSkin),  ball(0.084,mSkin)  ];
+
+  // 卡通白手套（持拍手不透明）
+  const ri0 = rightHanded ? 0 : 1;
+  P.glove = [];
+  for (let i=0;i<2;i++){
+    const g = new THREE.Mesh(new THREE.SphereGeometry(0.064,14,10), i===ri0 ? mHit : mGlove);
+    g.scale.set(1, 0.94, 1.16); root.add(g); P.glove.push(g);
+  }
+  // 圆头卡通鞋
   P.foot = [];
   for (let i=0;i<2;i++){
-    const f = new THREE.Mesh(new THREE.BoxGeometry(0.085,0.055,0.215), mShoe);
-    f.castShadow = true; root.add(f); P.foot.push(f);
+    const f = new THREE.Mesh(new THREE.SphereGeometry(0.110,14,10), mShoe);
+    f.scale.set(0.94,0.66,1.42); f.castShadow = true; root.add(f); P.foot.push(f);
+    if (!GH) addOutline(f, 1.07);
   }
-  P.stance = [0, 1.9];
-  P.feet = [ {p:[ 0.16,0, 1.9], move:null}, {p:[-0.16,0, 1.9], move:null} ];
+
+  // 描边（ghost 不加，避免半透明重叠发黑）
+  if (!GH){ addOutline(skull, 1.07); addOutline(P.torso, 1.06); addOutline(P.hips, 1.06);
+            addOutline(P.glove[ri0], 1.09); }
+
+  // 初始站在自己那一侧（否则开局要直线穿过球台"进场"）
+  const z0 = (startZ === undefined ? 1.9 : startZ);
+  P.stance = [0, z0];
+  P.feet = [ {p:[ 0.16,0, z0], move:null}, {p:[-0.16,0, z0], move:null} ];
   return P;
 }
 
@@ -2732,7 +3436,7 @@ function stepFeet(P, dt, F, R1){
 /* 依据球拍位姿把整个人物摆位 */
 function updateHuman(P, I, dt){
   const F = I.facing, R1 = vnorm(vcross(F,[0,1,0]));
-  move2(P.stance, I.stance, I.speed*dt);
+  moveStance(P.stance, I.stance, I.speed*dt);
   stepFeet(P, dt, F, R1);
 
   // 球拍局部坐标系：法线 n = local +Z，拍柄方向 = local +Y
@@ -2743,15 +3447,16 @@ function updateHuman(P, I, dt){
   const upV = vnorm(vcross(nV, rt));
   // 握把 / 手腕：沿"拍柄方向"（upV 绕法线转过握持 roll），直拍柄短、横拍柄长
   const Sg  = PAD_GEO[I.style] || PAD_GEO.penhold;
-  const gUp = paddleGripUp(nV, I.style, I.extraRoll || 0, { pose: I.pose });
+  const gUp = paddleGripUp(nV, I.style, I.extraRoll || 0, { pose: I.pose, userRoll: I.userRoll || 0 });
   const grip  = vadd(I.pos, vmul(gUp, -Sg.gripD));
   const wrist = vadd(I.pos, vmul(gUp, -(Sg.gripD + 0.047)));
 
   // 重心前压 / 上步：让手臂够得到（迭代拉近距离）
+  // 低球要深蹲（肩必须跟着降下来），否则肩—拍的垂直差 0.6m 远超臂长 0.55m
   const needXY = Math.hypot(grip[0]-P.stance[0], grip[2]-P.stance[1]);
   let lean = clamp(needXY*0.5, 0, 0.34);
   const toG = vnorm([grip[0]-P.stance[0], 0, grip[2]-P.stance[1]]);
-  const hipY = 0.93 - 0.19*I.crouch + Math.sin(performance.now()/1000*1.6)*0.007;  // 含重心微起伏
+  const hipY = 0.93 - 0.32*I.crouch + Math.sin(performance.now()/1000*1.6)*0.007;  // 含重心微起伏
   let hip = [P.stance[0]+toG[0]*lean, hipY, P.stance[1]+toG[2]*lean];
 
   const coil = I.coil;
@@ -2763,20 +3468,46 @@ function updateHuman(P, I, dt){
     const sh     = vadd(shBase, vmul(Rp, 0.185));
     const d = vlen(vsub(wrist, sh));
     if (d <= 0.52) break;
-    lean = Math.min(0.55, lean + (d-0.52)*0.9);
+    // 前倾不能冲过球拍（否则肩跑到拍子另一侧，距离反而变大，手臂越拉越长）
+    const cap = Math.max(0, Math.min(0.55, needXY - 0.06));
+    const nl  = Math.min(cap, lean + (d-0.52)*0.9);
+    if (nl <= lean + 1e-4) break;
+    lean = nl;
     hip  = [P.stance[0]+toG[0]*lean, hipY, P.stance[1]+toG[2]*lean];
   }
-  const chest  = chestOf(hip);
-  const shBase = vadd(chest, [0, 0.09, 0]);
-  const shR = vadd(shBase, vmul(Rp,  0.185));
-  const shL = vadd(shBase, vmul(Rp, -0.185));
+  let chest  = chestOf(hip);
+  let shBase = vadd(chest, [0, 0.09, 0]);
+  let shR = vadd(shBase, vmul(Rp,  0.185));
+  let shL = vadd(shBase, vmul(Rp, -0.185));
+  // 「送肩」：手臂 IK 的总长只有 0.295+0.255=0.55m，差一点点够不到时靠沉肩/送肩补上。
+  // 不补的话 IK 会把前臂胶囊拉长（1.5 倍也出现过），手臂像橡皮筋 —— 正手观感的头号杀手。
+  {
+    const dSh = vlen(vsub(wrist, shR));
+    if (dSh > 0.50){
+      const ext = vmul(vnorm(vsub(wrist, shR)), Math.min(0.13, dSh - 0.50));
+      chest = vadd(chest, ext); shBase = vadd(shBase, ext);
+      shR = vadd(shR, ext);     shL = vadd(shL, ext);
+    }
+  }
+  if (I.who) VIS['reach'+I.who] = +vlen(vsub(wrist, shR)).toFixed(3);   // 调试：肩→腕（>0.55 = 手臂被拉长）
 
-  // 头部：看向目标点
-  const headP = vadd(chest, [0, 0.255, 0]);
+  // 头部：沿躯干轴向上（躯干前倾时头跟着前倾，不再脱节），脖子填满衔接处
+  const uAx = vnorm([chest[0]-hip[0], chest[1]-hip[1], chest[2]-hip[2]]);
+  const headP = vadd(chest, vmul(uAx, 0.245));
+  setBone(P.neck, vadd(chest, vmul(uAx, -0.06)), headP);
   P.head.position.set(headP[0], headP[1], headP[2]);
   if (I.look){
-    _b1.set(I.look[0]-headP[0], I.look[1]-headP[1], I.look[2]-headP[2]);
-    if (_b1.lengthSq() > 1e-6) P.head.quaternion.setFromUnitVectors(VpZ, _b1.normalize());
+    // 限制头部追踪范围：偏航 ±77°、俯仰 -31°~+54°，球飞过身后不再"扭头看背后"
+    const dx = I.look[0]-headP[0], dy = I.look[1]-headP[1], dz = I.look[2]-headP[2];
+    const yawF = Math.atan2(I.facing[0], I.facing[2]);
+    let dyaw = Math.atan2(dx, dz) - yawF;
+    dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+    dyaw = clamp(dyaw, -1.35, 1.35);
+    const pitch = clamp(Math.atan2(dy, Math.hypot(dx,dz)), -0.55, 0.95);
+    _hq1.setFromAxisAngle(VpY, yawF + dyaw);
+    _hq2.setFromAxisAngle(VpX, -pitch);      // 绕 X 正旋转让 +Z 朝下，故取负号抬头
+    _hq1.multiply(_hq2);
+    P.head.quaternion.copy(_hq1);
   }
 
   // 持拍手（右手或左手）
@@ -2789,9 +3520,9 @@ function updateHuman(P, I, dt){
   setBone(P.armF[ri], elbow, wrist);
   setBone(P.hand[ri], wrist, grip);
 
-  // 非持拍手：平衡臂，随转腰反向摆动
-  const bal   = vadd(vadd(vmul(Rp,-0.75), vmul(Fp,0.45)), [0,0.10,0]);
-  const lHand = vadd(shL, vmul(vnorm(bal), 0.40 - 0.10*Math.max(0,coil)));
+  // 非持拍手：平衡臂，向持拍侧外侧张开抬高，避免插进裤子里
+  const bal   = vadd(vadd(vmul(Rp,-0.92), vmul(Fp,0.30)), [0,0.20,0]);
+  const lHand = vadd(shL, vmul(vnorm(bal), 0.44 - 0.10*Math.max(0,coil)));
   const pollL = vnorm(vadd(vmul(Rp,-0.7), [0,-0.45,0]));
   const elbowL = ik2(shL, lHand, 0.295, 0.255, pollL);
   setBone(P.armU[li], shL, elbowL);
@@ -2799,6 +3530,12 @@ function updateHuman(P, I, dt){
   P.hand[li].scale.set(1, 0.55, 1);
   P.hand[li].position.set(lHand[0],lHand[1],lHand[2]);
   P.hand[li].quaternion.setFromUnitVectors(VmY, new THREE.Vector3(lHand[0]-elbowL[0],lHand[1]-elbowL[1],lHand[2]-elbowL[2]).normalize());
+
+  // 关节球：遮住骨段接缝，卡通圆润感
+  P.jSh[ri].position.set(shR[0],shR[1],shR[2]);
+  P.jSh[li].position.set(shL[0],shL[1],shL[2]);
+  P.jEl[ri].position.set(elbow[0],elbow[1],elbow[2]);
+  P.jEl[li].position.set(elbowL[0],elbowL[1],elbowL[2]);
 
   // 腿：髋 → 踝，二骨 IK，膝朝前
   for (let i=0;i<2;i++){
@@ -2809,8 +3546,9 @@ function updateHuman(P, I, dt){
     const knee = ik2(hipJ, ankle, 0.44, 0.40, pollK);
     setBone(P.legU[i], hipJ, knee);
     setBone(P.legF[i], knee, ankle);
+    P.jKn[i].position.set(knee[0],knee[1],knee[2]);
     const toe = vadd(ankle, vmul(vnorm(vadd(F, vmul(R1, i===0?0.10:-0.10))), 0.10));
-    P.foot[i].position.set(ankle[0], 0.028+f.p[1], ankle[2]);
+    P.foot[i].position.set(ankle[0], ankle[1], ankle[2]);
     P.foot[i].quaternion.setFromUnitVectors(VpZ, new THREE.Vector3(toe[0]-ankle[0], 0, toe[2]-ankle[2]).normalize());
   }
 
@@ -2823,11 +3561,21 @@ function updateHuman(P, I, dt){
   P.torso.quaternion.setFromUnitVectors(VmY, _b1.normalize());
   P.torso.scale.set(1, Math.max(0.4, vlen(vsub(chest,hipMid))/0.33), 1);
   P.torso.visible = true;
+
+  // 白手套：定位并对齐手的方向
+  P.glove[ri].position.set(grip[0],grip[1],grip[2]);
+  _b1.set(grip[0]-wrist[0], grip[1]-wrist[1], grip[2]-wrist[2]);
+  if (_b1.lengthSq() > 1e-8) P.glove[ri].quaternion.setFromUnitVectors(VpZ, _b1.normalize());
+  P.glove[li].position.set(lHand[0],lHand[1],lHand[2]);
+  _b1.set(lHand[0]-elbowL[0], lHand[1]-elbowL[1], lHand[2]-elbowL[2]);
+  if (_b1.lengthSq() > 1e-8) P.glove[li].quaternion.setFromUnitVectors(VpZ, _b1.normalize());
   return { hip:hipMid, head:headP, shR, elbow, wrist, grip };
 }
 
-const hPlayer = buildHuman(0xe8b98d, 0xdc2626, 0x1f2937, 0xf1f5f9, true);
-const hAI     = buildHuman(0xd8a877, 0x2563eb, 0x111827, 0x0f172a, true);
+/* 马里奥网球配色：己方=红衣蓝裤（马里奥）· 对手=绿衣紫裤（路易吉）
+   己方人物半透明（ghost），持拍手与球拍不透明 —— 便于看清球与击球动作 */
+const hPlayer = buildHuman(0xf5c9a2, 0xe23b3b, 0x2f5fd0, 0x3a2f2a, true, true,  '你',  1.9);
+const hAI     = buildHuman(0xf5c9a2, 0x2fa84a, 0x5b3fa8, 0x3a2f2a, true, false, 'AI', -1.9);
 
 /* 挥拍 / 手腕的时间轴°：
    tc = 距击球的剩余时间，rel = 击球后经过的时间 */
@@ -2904,7 +3652,7 @@ function loop(now){
 
   // 解算刷新（参数/球状态变化时），节流
   hudT += dt;
-  if (hudT > 0.07){ hudT = 0; updateHUD(); updateFrzBar(); }
+  if (hudT > 0.07){ hudT = 0; updateHUD(); updateFrzBar(); renderChain(); }
   if (toastT && now - toastT > 1400){ $('toast').classList.remove('show'); toastT = 0; }
   if (tipT && now - tipT > 1600){ $('tip').style.color = 'var(--dim)'; tipT = 0; }
 
@@ -2941,11 +3689,21 @@ UI.s_rest.value = Math.round(G.P.rest*100); UI.s_assist.value = G.P.assist;
   setCam(0);
   resetBall('p');
 window.__PONG = G;   // 调试句柄
+window.__PONG.padAim = padAim; window.__PONG.padMesh = ()=>pPad;   // 拍面黄环 / 球拍（便于调试）
 window.__PONG.CAM = CAM; window.__PONG.camera = camera;
 window.__PONG.VIS = VIS; window.__PONG.padOf = padStyleOf;
 window.__PONG.TECH = TECH; window.__PONG.strokeTech = strokeTech;
 window.__PONG.techHeadDir = techHeadDir; window.__PONG.setTech = setTech;
 window.__PONG.padMesh = ()=>pPad;                            // 便于调试/外部脚本
+window.__PONG.doServe = doServe; window.__PONG.computePlan = computePlan;
+window.__PONG.findContact = findContact; window.__PONG.paramObj = paramObj;
+window.__PONG.solveShot = solveShot; window.__PONG.evalShot = evalShot;
+window.__PONG.SERVES = SERVES; window.__PONG.setServe = setServe; window.__PONG.setRecv = setRecv;
+window.__PONG.serveTry = serveTry; window.__PONG.solveServe = solveServe;
+window.__PONG.faceAdjust = faceAdjust; window.__PONG.techOpt = techOpt;
+window.__PONG.recvTech = recvTech; window.__PONG.stageTech = stageTech;
+window.__PONG.aiParamObj = aiParamObj; window.__PONG.predict = predict;
+window.__PONG.aiPredictHit = aiPredictHit; window.__PONG.incomingTop = incomingTop;
 requestAnimationFrame(loop);
 </script>
 </body>
