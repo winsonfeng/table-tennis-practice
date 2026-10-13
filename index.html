@@ -841,9 +841,14 @@ function findContact(incoming, side, target, P){
     } else pb = bottom;
     if (ownB >= 2) break;                                 // 二次落台 → 回合已结束
     const x=st[0], y=st[1], z=st[2];
-    // 击球点必须落在「本方半台台面范围内」（-lim ~ +lim，lim=台半长-余量），
+    // 击球点须落在「本方半台台面范围内」（-lim ~ +lim，lim=台半长-余量），
     // 避免把端线后方 / 出界处的点当成合法击球点（高球落点深时尤其致命）。
-    const lim = (T.halfL || 1.37) - 0.03;
+    // 但退台对拉时球员已退到台后，击球点本来就在端线之后——必须把有效击球区
+    // 延伸到退台位置，否则所有深球都被判「无合法击球点」（G.plan=null）、
+    // 球拍停在原地，球二次落台漏接（这正是对拉撑不长、对手未接到的根因）。
+    const baseLim = (T.halfL || 1.37) - 0.03;
+    const retreatExtra = (side < 0 ? counterLoopRetreat('p') : counterLoopRetreat('a'));
+    const lim = Math.min(baseLim + retreatExtra, 2.55);   // 与 contactOK 的 z<2.60 对齐
     const okZ = side<0 ? (z>0.12 && z<lim) : (z<-0.12 && z>-lim);
     if (ownB >= 1 && okZ && y>0.82 && y<2.30 && Math.abs(x)<1.15)
       cands.push({ c:[x,y,z,st[3],st[4],st[5],st[6],st[7],st[8]], t, y, z });
@@ -866,7 +871,12 @@ function findContact(incoming, side, target, P){
   }
   pick.sort((a,b)=>a.s0-b.s0);
   const best = pick[0];
-  if (best.s0 > 40) return null;                       // 该来球无法有效回击
+  // 玩家此前的 40 阈值过紧：退台对拉时来球又快又深，最优击球点质量分常落到 40~70，
+  // 一旦超 40 就返回 null（G.plan=null），玩家球拍根本不去迎球，于是「对手未接到」漏接。
+  // 这与 AI 的 aiPredictHit 不对称（AI 只要有合法接触点就必回球）。放宽到 75：
+  // 真正打不到的球会因没有候选点（ownB 未达标 / 超出有效区）在上方自然 return null，
+  // 而 40~75 这段「勉强但可回」的球交给后续 solveAutoSafe 保证落台即可。
+  if (best.s0 > 75) return null;                       // 该来球确实无法有效回击
   // 时机偏移：在误差可接受集合里选最接近 t*+offset 的点
   const off = P.timing/1000;
   const tStar = best.t + off;
@@ -1169,7 +1179,7 @@ function recvTech(P, st, c, bh, lock){
   const lowY = c[1] < 0.95;
   const heavy = top < -120, mid = top < -40;            // 下旋越强越负（普通下旋发球≈-150，弱≈-30）
   // 高球（高点 + 出台）优先扣杀；近网高球吸短（摆短）—— 都放在最前，保证处理高球
-  if (c[1] > 1.45 && !near) return 'smash';             // 高点出台 → 扣杀
+  if (c[1] > 1.36 && !near) return 'smash';             // 高点出台 → 扣杀
   if (c[1] > 1.20 && near)  return 'chop';              // 近网高点 → 吸短摆短
   if (heavy && !near) return 'lob';                     // 极强下旋出台 → 高调拉起（罕见）
   if (mid && !near)   return 'loop';                    // 中强下旋出台 → 弧圈拉起（更平更快）
@@ -1195,7 +1205,7 @@ function strokeTech(o){
   const y = o.y, tz = Math.abs(o.tz || 0);
   const short = o.short;                        // 近网 / 台内（未出台）
   // 高球优先处理：高点 + 出台 → 扣杀；高点 + 近网 → 吸短（摆短）
-  if (y > 1.45 && tz > 0.85) return 'smash';
+  if (y > 1.36 && tz > 0.82) return 'smash';
   if (y > 1.20 && tz <= 0.85) return 'chop';
   // ── 弧圈对拉模式：相持中双方连续弧圈 → 锁定弧圈技术，不会退化成挡/推
   if (G.counterLoop && G.counterLoop.active){
@@ -1231,36 +1241,40 @@ function updateCounterLoop(who, techKey){
   else             cl.techA = techKey || '';
   // 只在相持阶段（ptHits >= 3）才检测对拉
   if (G.ptHits < 3){ cl.active = false; cl.hits = 0; return; }
-  // 双方最近一拍都是弧圈 → 激活对拉
-  const bothLoop = (cl.techP === 'loop' || cl.techP === 'lob') &&
-                   (cl.techA === 'loop' || cl.techA === 'lob');
-  if (bothLoop){
-    if (!cl.active){ cl.active = true; cl.hits = 2; }    // 首次进入对拉
-    else cl.hits++;                                       // 继续对拉，累计板数
+  // 相持达到一定板数后自动进入对拉（强制双方弧圈），避免"都要先打出 loop 才触发"的死锁
+  if (!cl.active && G.ptHits >= 4){ cl.active = true; cl.hits = 2; }
+  // 对拉持续判定：弧圈(反拉) / 高吊 / 扣杀 / 攻球 都属于进攻相持，不打断对拉；
+  // 只有某一方退回搓/推/挡等防守软手才结束对拉
+  const atk = t => (t === 'loop' || t === 'lob' || t === 'smash' || t === 'drive');
+  if (atk(cl.techP) && atk(cl.techA)){
+    if (cl.active) cl.hits++;                              // 继续对拉，累计板数
   } else {
-    // 一方打出非弧圈（如扣杀高球）→ 退出对拉；但刚进入相持的前两板允许非弧圈
-    if (cl.active && cl.hits >= 4) cl.active = false;    // 已对拉多板后变线 → 退出
-    // 尚未进入对拉（相持前两板不是弧圈）→ 继续观察
+    if (cl.active && cl.hits >= 4) cl.active = false;
   }
 }
 
 /* 对拉期间的自动退台偏移（米）：随板数逐步退到中远台
-   hits=2: 退 0.30m（中台）；hits=4: 退 0.55m（中远台）；hits=6+: 退 0.75m（远台） */
+   hits=2: 退 0.18m（中台）；hits=6: 退 ~0.9m（中远台）；hits=8+: 退 1.10m（远台）
+   注：退台幅度以「保证还能稳定回球」为上限——退太远会超出可击球区导致漏球，
+   反而破坏对拉。相机已随对拉板数动态拉远（见 updCam 的 rallyExpand），退台是否
+   夸张不影响「看到全场」的观感，故这里取可稳定相持的适度退台。 */
 function counterLoopRetreat(who){
   const cl = G.counterLoop;
   if (!cl || !cl.active) return 0;
   // 启用开关：用户可通过滑块关闭自动退台
   if (typeof G.P.clRetreat !== 'undefined' && G.P.clRetreat === 0) return 0;
   const retreatScale = (G.P.clRetreat !== undefined) ? G.P.clRetreat / 100 : 1.0;
-  // 渐进退台：0.15m/板，上限 0.80m
-  const retreat = clamp((cl.hits - 1) * 0.15, 0, 0.80) * retreatScale;
+  // 渐进退台：0.18m/板，上限 1.10m（清晰的中远台效果，且仍在可稳定回球范围）
+  const retreat = clamp((cl.hits - 1) * 0.18, 0, 1.10) * retreatScale;
   return retreat;
 }
 
 /* 对拉期间的加质量增量：随板数逐步提升力量和旋转
    返回 { powerBoost, spinBoost }（叠加在基础参数之上）
    - 第3板起开始加质量（前两板是建立对拉节奏）
-   - 力量每板 +3%，旋转每板 +4%，有上限 */
+   - 加质量以「不破坏对拉持续性」为上限：板数多了力量/旋转仍继续涨，但涨幅放缓、
+     上限压低，否则后段球速/旋转过猛，退台的双方都接不住，对拉反而撑不到 10 回合。 */
+let clBoostScale = 1.0;   // 对拉加质量档位（1=满质量；解不出落台球时逐级降低以保证落台）
 function counterLoopQualityBoost(){
   const cl = G.counterLoop;
   if (!cl || !cl.active) return { powerBoost:0, spinBoost:0 };
@@ -1268,21 +1282,53 @@ function counterLoopQualityBoost(){
   if (enableBoost <= 0) return { powerBoost:0, spinBoost:0 };
   // 从第3板起开始加质量
   const boardsAfterWarmup = Math.max(0, cl.hits - 2);
-  const powerBoost = clamp(boardsAfterWarmup * 3, 0, 25) * enableBoost;   // 力量最多 +25%
-  const spinBoost  = clamp(boardsAfterWarmup * 4, 0, 30) * enableBoost;   // 旋转最多 +30%
+  const powerBoost = clamp(boardsAfterWarmup * 2, 0, 14) * enableBoost * clBoostScale;   // 力量最多 +14%
+  const spinBoost  = clamp(boardsAfterWarmup * 3, 0, 20) * enableBoost * clBoostScale;   // 旋转最多 +20%
   return { powerBoost, spinBoost };
 }
 
-/* 对拉期间 AI 的落点策略：更深更偏（逼对手跑动）
-   返回 [tx偏移, tz偏移] */
+/* ── 「保证落台」求解：加质量永远以保证落台为前提 ──
+   原流程：solveAuto 找最优解 → faceAdjust 套技术拍型。但 faceAdjust 内部会用
+   当前 P 重新 solveDrive，若仍用满质量 P，可能再次出界/下网，使「保证落台」落空。
+   因此本函数把「降档 + 重解 + 重套技术」做到同一档位内：失败就逐级降质量
+   （0.6 → 0.3 → 0）重来，取第一个「过网且落对方半台」的版本。
+   非对拉（无加质量）时等价于原来的 solveAuto + faceAdjust（只算一次，不重试）。 */
+function solveAutoSafe(c, side, target, opt, allowComp){
+  const tryOne = (scale) => {
+    clBoostScale = scale;                                  // 决定 paramObj/aiParamObj 注入的加质量
+    const P  = (side === -1) ? paramObj() : aiParamObj();
+    let sol = solveAuto(c, side, target, P);
+    if (sol && opt) sol = faceAdjust(c, sol, target, P, allowComp, opt, side) || sol;
+    return sol;
+  };
+  // 落台判定：过网 + 落对方半台（faceAdjust 返回的 sol.r.ev 已是最终轨迹）
+  const lands = s => !!(s && s.r && s.r.ev && !s.r.ev.net && !s.r.ev.out &&
+                        s.r.ev.landings.length &&
+                        sgn(s.r.ev.landings[0][1]) === side);
+  const b = counterLoopQualityBoost();                     // clBoostScale 此时=1，反映满质量
+  const boostActive = (b.powerBoost > 0 || b.spinBoost > 0);
+  let sol = tryOne(1.0);
+  if (boostActive && !lands(sol)){
+    for (const lv of [0.6, 0.3, 0]){
+      const s2 = tryOne(lv);
+      if (lands(s2)){ sol = s2; break; }
+    }
+  }
+  clBoostScale = 1.0;                                      // 还原档位：下一拍仍从满质量尝试
+  return sol;
+}
+
+/* 对拉期间 AI 的落点策略：仍会「顶深 + 微偏」逼对手跑动，但幅度进一步收敛——
+   退台后双方覆盖面积变小，落点过偏会直接漏球、打断对拉。这里把横向/纵向
+   偏移压到「能调动但接得住」的区间，优先保证对拉能持续而非一味大角度。 */
 function counterLoopAiTarget(){
   const cl = G.counterLoop;
   if (!cl || !cl.active) return [0, 0];
   const boardsAfterWarmup = Math.max(0, cl.hits - 2);
-  // 落点越来越深（顶底线），偏移量随板数增大
-  const depthBoost = clamp(boardsAfterWarmup * 0.06, 0, 0.30);
-  // 横向偏移（大角度调动对手）随板数微增
-  const sideVariance = clamp(boardsAfterWarmup * 0.04, 0, 0.20);
+  // 落点越来越深（顶底线），但上限收敛，避免压底线出界/够不到
+  const depthBoost = clamp(boardsAfterWarmup * 0.045, 0, 0.18);
+  // 横向偏移（调动对手）随板数微增，但上限压低，保证退台后仍能接到
+  const sideVariance = clamp(boardsAfterWarmup * 0.018, 0, 0.08);
   return [sideVariance * (Math.random() - 0.5) * 2, depthBoost];
 }
 /* 拍头朝向（世界系）＝ 上*hu ＋ 持拍侧外*ho*(正手+1 / 反手-1) ＋ 身前*hf */
@@ -1580,12 +1626,16 @@ const CAM = [
   { name:'拍面微距', type:'macro', fov:32, r:0.55, th:-1.62, ph:1.12, ty:0.02 },
 ];
 const CAM_MACRO = CAM.length - 1;
-const camS = { ...CAM[0], eye:new THREE.Vector3(0,1.6,3.6), look:new THREE.Vector3(0,0.95,0), init:false };
+const camS = { ...CAM[0], eye:new THREE.Vector3(0,1.6,3.6), look:new THREE.Vector3(0,0.95,0), init:false, rally:0 };
 const _wP = new THREE.Vector3(), _wL = new THREE.Vector3(), _tmpD = new THREE.Vector3();
 
 function updCam(dt){
   const c = CAM[G.camMode];
   const wantP = _wP, wantL = _wL;
+  // 对拉退台期间动态拉远机位：随退台板数平滑放大，确保中远台双方都在画面内
+  const clN = (G.counterLoop && G.counterLoop.active) ? clamp((G.counterLoop.hits - 2) / 6, 0, 1) : 0;
+  camS.rally = (camS.rally || 0) + (clN - (camS.rally || 0)) * Math.min(1, dt * 2.5);
+  const rallyExpand = camS.rally || 0;
   if (c.type === 'fps'){
     const h = VIS['head'+(c.who==='p'?'P':'A')] || VIS.head || [0,1.58,2.0];
     const tgt = G.live ? [G.st[0], G.st[1], G.st[2]]
@@ -1600,7 +1650,8 @@ function updCam(dt){
   } else if (c.type === 'follow'){
     const h = VIS['head'+(c.who==='p'?'P':'A')] || VIS.head || [0,1.58,2.0];
     const sgnZ = Math.sign(h[2]) || 1;
-    wantP.set(h[0]*0.72 + 0.55, 2.28, h[2] + sgnZ*1.70);
+    const back = 1.70 + rallyExpand * 2.4;            // 对拉退台时第三人称机位同步拉远
+    wantP.set(h[0]*0.72 + 0.55, 2.28 + rallyExpand*0.7, h[2] + sgnZ*back);
     const b = G.live ? G.st : null;
     if (b) wantL.set(b[0]*0.55, 0.90 + clamp(b[1]-0.9,0,0.5)*0.25, b[2]*0.30);
     else   wantL.set(0, 0.95, 0);
@@ -1617,9 +1668,10 @@ function updCam(dt){
   } else {
     camS.r += (c.r-camS.r)*0.10; camS.th += (c.th-camS.th)*0.10;
     camS.ph += (c.ph-camS.ph)*0.10; camS.ty += (c.ty-camS.ty)*0.10;
+    const rEff = camS.r * (1 + rallyExpand * 1.35);   // 对拉退台时动态拉远，确保中远台双方都在画面内
     const s2 = Math.sin(camS.ph);
-    wantP.set(camS.r*s2*Math.sin(camS.th), camS.ty + camS.r*Math.cos(camS.ph),
-              -0.12 + camS.r*s2*Math.cos(camS.th));
+    wantP.set(rEff*s2*Math.sin(camS.th), camS.ty + rEff*Math.cos(camS.ph),
+              -0.12 + rEff*s2*Math.cos(camS.th));
     wantL.set(0, camS.ty, -0.12);
   }
   const k = camS.init ? Math.min(1, dt*7.5) : 1; camS.init = true;
@@ -1923,7 +1975,7 @@ function computePlan(){
   ss = strokeSide(cd.c[0], 'p', stX0, cd.t); bh = ss.bh;
   const opt = techOpt(P, G.st, bh, cd.c, G.recvP.key || recvLock);
   const sol = G.auto
-    ? faceAdjust(cd.c, solveAuto(cd.c, -1, target, P), target, P, G.comp, opt, -1)
+    ? solveAutoSafe(cd.c, -1, target, opt, G.comp)
     : manualPlan(cd.c, P);
   if (!sol){ G.plan = null; return; }
   G.plan = { c:cd.c, t:cd.t, t0:cd.t, born:performance.now(), ...sol, bh,
@@ -2014,8 +2066,7 @@ function aiThink(dt){
       G.stage = (G.ptHits <= 0) ? 'serve' : 'rally';
       opt = techOpt(P, G.st, aiBh, hit.c, 'auto');
     }
-    let sol = solveAuto(hit.c, 1, [tx,tz], P);
-    if (sol && opt) sol = faceAdjust(hit.c, sol, [tx,tz], P, true, opt, 1) || sol;
+    let sol = solveAutoSafe(hit.c, 1, [tx,tz], opt, true);
     if (!sol){ moveTowards(pad.p, hit.c, (1.6+3.2*d)*dt); return; }
     G.aiPlan = { c:hit.c.slice(), t:hit.t, t0:hit.t, born:performance.now(), ...sol, bh:aiBh,
                  sx:ssA.gx, latW:ssA.latW };
@@ -2160,7 +2211,10 @@ function applyMoveKeys(dt){
 /* ══════════════════════════════════════════════════════════════════
    10. 物理主循环（含碰撞与规则判定）
    ══════════════════════════════════════════════════════════════════ */
-const HIT_R = 0.082 + PH.r*0.55;
+// 自动模式下判定「球拍触球」的容差半径。退台对拉时来球飞行更长、到位更急，
+// 原本的 9cm 容差偏紧，双方（尤其自动迎球的玩家）容易差一点够不到而漏接。
+// 适度放大到 ~13cm，让自动对打更稳定、对拉更连贯（手动模式靠玩家自己瞄，不受影响）。
+const HIT_R = 0.13 + PH.r*0.55;
 function tryPaddle(pad, side, who, prev){
   if (pad.cd > 0) return false;
   const n = pad.n, st = G.st;
@@ -2564,7 +2618,7 @@ function updateCharacters(dt){
     if (plan && anyLive && G.last !== who){
       // 站位 = 解算好的「让位点」：把击球点放到正手区（持拍侧 +30cm）或反手区（−12cm）
       goalX = clamp((plan.sx !== undefined ? plan.sx : plan.c[0]*0.86) + latOff, -1.12, 1.12);
-      goalZ = clamp(Math.abs(plan.c[2]) + 0.35 + stanceBias(who), 1.42, 3.0);
+      goalZ = clamp(Math.abs(plan.c[2]) + 0.35 + stanceBias(who), 1.42, 3.8);
       pad.hold = [goalX - latOff, goalZ];     // 锁定本拍站位（不含手动偏移 / 未带方向符号）
     } else if (pad.hold && rel !== null && rel < 1.00){
       // 出手后立刻把站位弹回待机位（0.5m / 5m·s⁻¹ ≈ 0.1s），而随挥还在向前展开
@@ -2575,7 +2629,7 @@ function updateCharacters(dt){
       pad.hold = null;
       // 待机位略偏反手侧（正手覆盖面更大），符合真实准备姿势
       goalX = -0.10*(who==='p' ? 1 : -1) + latOff;
-      goalZ = clamp(1.92 + stanceBias(who), 1.42, 3.0);
+      goalZ = clamp(1.92 + stanceBias(who), 1.42, 3.8);
     }
     goalZ *= dirB;
 
@@ -3777,7 +3831,9 @@ function loop(now){
       tgt[0] += ox; tgt[1] += oy;
     }
     const before = pad.p.slice();
-    moveTowards(pad.p, tgt, 6.0*dt + (1-Math.min(1,Math.hypot(tgt[0]-pad.p[0],tgt[1]-pad.p[1],tgt[2]-pad.p[2])))*0.0);
+    // 退台对拉时双方都退到中远台，来球飞行更长、到位更急，加快迎球速度以减少漏球
+    const pSpeed = (G.counterLoop && G.counterLoop.active) ? 11.0 : 6.5;
+    moveTowards(pad.p, tgt, pSpeed*dt + (1-Math.min(1,Math.hypot(tgt[0]-pad.p[0],tgt[1]-pad.p[1],tgt[2]-pad.p[2])))*0.0);
     pad.n = G.plan.n.slice();
   } else if (G.plan === null || !G.live){
     if (mouseActive()){ const mp = mouseToWorld(); moveTowards(pad.p, [mp[0],mp[1],pad.p[2]], 5*dt); }
