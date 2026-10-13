@@ -2633,6 +2633,15 @@ function updateCharacters(dt){
     }
     goalZ *= dirB;
 
+    // ── 优化：站位过渡更自然（避免突然跳变）
+    const smoothFactor = 0.85;
+    const prevGoalX = pad.prevGoalX || goalX;
+    const prevGoalZ = pad.prevGoalZ || goalZ;
+    goalX = prevGoalX + (goalX - prevGoalX) * smoothFactor;
+    goalZ = prevGoalZ + (goalZ - prevGoalZ) * smoothFactor;
+    pad.prevGoalX = goalX;
+    pad.prevGoalZ = goalZ;
+
     // ── 屈膝：球越低蹲得越深；出手瞬间额外下压
     const cy = plan && anyLive ? plan.c[1] : pad.p[1];
     const crouch = clamp((1.16-cy)/0.42, 0, 1)*0.72 + (tc!==null && tc<0.22 ? 0.10 : 0);
