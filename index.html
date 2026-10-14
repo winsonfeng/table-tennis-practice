@@ -1124,39 +1124,42 @@ let playerBH = 'rpb';                 // 我的反手方式：rpb=直拍横打 /
    rEnd        = 随挥结束时拍柄转到的角度（rad，正手内旋 / 反手外展，符号由 bh 决定） */
 const TECH = {
   loop : { name:'弧圈', hu:0.30, ho:0.88, hf:0.18, wrist:1.30, swing:1.10, face:'前倾压拍',
-           loft:-0.10, brush:6, pollFh:[1.05,-0.55,-0.75], pollBh:[0.10, 0.45,-0.70],
-           h2u:0.88, h2o:-0.32, h2f:0.12, rBack:0.26, rEnd:0.62,
-           desc:'拍头朝外上 · 拍面前倾 · 甩腕薄摩擦' },
+           // loft 实测：给 -0.10 时解算出的拍面法线仰角只有 -1.1°（几乎竖直=挡球姿态），
+           // 看着就是"亮拍/立着拍托球"。真实弧圈是拍面前倾压住球（法线仰角约 -15°~-25°），
+           // 靠摩擦而非撞击把球带起来。加大前倾偏置把拍面压下去（brush 负责给上旋）。
+           loft:-0.26, brush:6, pollFh:[1.05,-0.55,-0.75], pollBh:[0.10, 0.45,-0.70],
+           h2u:0.88, h2o:-0.32, h2f:0.12, rBack:0.26, rEnd:0.62, faceDown:0.30,
+           desc:'拍头朝外上 · 拍面前倾压拍 · 甩腕薄摩擦' },
   drive: { name:'攻球', hu:0.64, ho:0.76, hf:0.12, wrist:0.85, swing:0.90, face:'略前倾',
-           loft:-0.03, pollFh:[1.00,-0.35,-0.55], pollBh:[0.20, 0.60,-0.55],
+           loft:-0.14, pollFh:[1.00,-0.35,-0.55], pollBh:[0.20, 0.60,-0.55], faceDown:0.2,
            h2u:0.80, h2o:-0.12, h2f:0.14, rBack:0.20, rEnd:0.46,
-           desc:'拍头朝外上 · 拍面略前倾 · 撞击为主' },
+           desc:'拍头朝外上 · 拍面前倾 · 撞击为主' },
   smash: { name:'扣杀', hu:0.94, ho:0.46, hf:0.08, wrist:0.55, swing:1.25, face:'前倾下压',
-           loft:-0.20, pollFh:[0.85, 0.15,-0.25], pollBh:[0.30, 0.30,-0.35],
+           loft:-0.34, pollFh:[0.85, 0.15,-0.25], pollBh:[0.30, 0.30,-0.35], faceDown:0.36,
            h2u:0.62, h2o:-0.28, h2f:0.06, rBack:0.22, rEnd:0.42,
            desc:'拍头高举 · 拍面前倾 · 加速下压' },
   chop : { name:'搓球', hu:-0.30, ho:0.12, hf:1.00, wrist:0.16, swing:0.45, face:'后仰亮拍',
            loft: 0.55, brush:-7, dCap:2.8, pollFh:[0.45, 0.85,-0.20], pollBh:[0.15, 0.80,-0.35],
-           h2u:-0.10, h2o:0.28, h2f:1.00, rBack:0.10, rEnd:0.16,
+           h2u:-0.10, h2o:0.28, h2f:1.00, rBack:0.10, rEnd:0.16, faceDown:0,
            desc:'拍头朝前下探到球底 · 拍面后仰亮开 · 手腕固定切薄' },
   twist: { name:'拧拉', hu: 0.10, ho:0.62, hf:0.55, wrist:0.92, swing:0.80, face:'前倾·亮内侧',
-           loft: 0.14, brush: 10, pollFh:[0.35, 0.55, 0.10], pollBh:[0.20, 0.50, 0.45],
+           loft: 0.14, brush: 10, pollFh:[0.35, 0.55, 0.10], pollBh:[0.20, 0.50, 0.45], faceDown:0.1,
            h2u:0.58, h2o:0.34, h2f:0.30, rBack:0.34, rEnd:0.52,
            desc:'拍头朝外上抬到球侧后 · 手腕外展内旋 · 台内拧裹薄磨' },
   flick: { name:'挑打', hu: 0.52, ho:0.42, hf:0.28, wrist:0.70, swing:0.55, face:'略后仰托送',
-           loft: 0.26, brush: 5, dCap:3.4, pollFh:[0.55, 0.42,-0.15], pollBh:[0.35, 0.45,-0.20],
+           loft: 0.26, brush: 5, dCap:3.4, pollFh:[0.55, 0.42,-0.15], pollBh:[0.35, 0.45,-0.20], faceDown:0.06,
            h2u:0.72, h2o:0.14, h2f:0.26, rBack:0.18, rEnd:0.30,
            desc:'拍头朝上插入台面 · 手腕前顶挑起 · 短促爆发' },
   lob  : { name:'高调', hu: 0.16, ho:0.72, hf:0.22, wrist:0.85, swing:1.05, face:'前倾·包球',
            loft: 0.60, brush: 12, dCap:3.6, pollFh:[0.20, 0.80,-0.10], pollBh:[0.15, 0.75,-0.15],
-           h2u:0.34, h2o:0.76, h2f:0.16, rBack:0.28, rEnd:0.66,
+           h2u:0.34, h2o:0.76, h2f:0.16, rBack:0.28, rEnd:0.66, faceDown:0.18,
            desc:'拍头下沉再向上拎 · 拍面压住球顶摩擦 · 高弧线深落点' },
   push : { name:'推挡', hu:0.96, ho:-0.20, hf:0.12, wrist:0.30, swing:0.40, face:'立拍',
-           loft: 0.08, pollFh:[0.30, 0.55,-0.45], pollBh:[0.25, 0.60,-0.50],
+           loft: 0.08, pollFh:[0.30, 0.55,-0.45], pollBh:[0.25, 0.60,-0.50], faceDown:0.02,
            h2u:0.92, h2o:-0.18, h2f:0.14, rBack:0.08, rEnd:0.14,
            desc:'拍头朝上偏内 · 拍面立起 · 借力' },
   block: { name:'挡球', hu:0.84, ho:-0.14, hf:0.22, wrist:0.25, swing:0.40, face:'立拍前倾',
-           loft: 0.02, pollFh:[0.40, 0.70,-0.35], pollBh:[0.30, 0.65,-0.45],
+           loft: 0.02, pollFh:[0.40, 0.70,-0.35], pollBh:[0.30, 0.65,-0.45], faceDown:0,
            h2u:0.86, h2o:-0.12, h2f:0.20, rBack:0.08, rEnd:0.14,
            desc:'拍头朝上 · 拍面立 · 借力快挡' },
 };
@@ -2929,6 +2932,9 @@ function updateCharacters(dt){
 
     // ── 球拍朝向：法线 + 技术拍头方向（搓球朝前 / 攻球朝外上）+ 甩腕
     const nV = vnorm(nv);
+    // 视觉压拍：只把渲染用的拍面法线「下压」faceDown，物理拍面 pad.n 不动
+    // （改物理 loft 会被 faceAdjust 的过网质量竞争淘汰，压不下去 ⇒ 看着全是亮拍）。
+    const nVvis = faceDown(nV, T.faceDown || 0);
     // wristG：勒布伦发力不靠大臂抡甩，而是「前臂一闪 + 手腕抖出去」的寸劲
     const wk = (T.wrist || 1) * styleNow().wristG;
     const snap0 = wristSnap(tc, rel, bT, bS);
@@ -2936,7 +2942,7 @@ function updateCharacters(dt){
     const snap  = bh ? { spin:-snap0.spin*wk, side:-snap0.side*wk }
                      : { spin: snap0.spin*wk, side: snap0.side*wk };
     const uRoll = (who === 'p' ? (G.P.roll || 0) : 0) * Math.PI/180;   // 手动「拍柄方向」
-    const q = paddleQuat(nV, styleI, snap, gripRoll, { pose, headDir, userRoll: uRoll });
+    const q = paddleQuat(nVvis, styleI, snap, gripRoll, { pose, headDir, userRoll: uRoll });
     if (who === 'p'){
       VIS.wrist = snap;
       // 拍头世界方向（局部 +Y），供 HUD 读出「朝上 / 朝外上 / 朝前下」等
@@ -2958,6 +2964,7 @@ function updateCharacters(dt){
       facing:F, stance:[goalX, goalZ], speed: 2.4 + (plan?2.6:0),
       pos, n:nv, crouch, coil: charCoil[who], look: lookTarget,
       style: styleI, pose, headDir, bh, sw, who,
+      faceDown: T.faceDown || 0,                  // 视觉压拍量，透传给 updateHuman 让握把同步下压
       // 必须与上面 paddleQuat 用同一个 gripRoll，否则握把/拍柄与拍面错位 ⇒ 手没握在拍柄上
       extraRoll: gripRoll,                              // 转腰 + 挥拍阶段 → 拍柄朝向跟着转
       userRoll: uRoll                                   // 手动「拍柄方向」→ 手腕/握把一起转
@@ -2969,7 +2976,7 @@ function updateCharacters(dt){
     VIS['hd'+(who==='p'?'P':'A')] = headDir; VIS['roll'+(who==='p'?'P':'A')] = headRoll;
     if (who === 'p'){
       VIS.head = anchor.head; VIS.hip = anchor.hip; VIS.elbow = anchor.elbow;
-      VIS.look = lookTarget; VIS.racket = pos; VIS.racketN = nv; VIS.grip = anchor.grip; VIS.wristP = anchor.wrist;
+      VIS.look = lookTarget; VIS.racket = pos; VIS.racketN = nv; VIS.visN = nVvis; VIS.grip = anchor.grip; VIS.wristP = anchor.wrist;
       VIS.stance = [H.stance[0], H.stance[1]];
       VIS.gap = pad.dbgGap || 0; VIS.tc = tc; VIS.rel = rel; VIS.bh = bh;
       VIS.tgt = pad.dbgTgt; VIS.cur = pad.vpos; VIS.tc0 = pad.tc0;
@@ -3664,6 +3671,18 @@ function paddleGripUp(nV, style, extraRoll, opt){
   return vnorm(vcross(Z, X));
 }
 const vlerp = (a,b,k)=>[a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k];
+/* 把拍面法线「下压」delta 弧度（保持水平朝向不变，只改仰角）⇒ 拍面顶部前倾 = 压拍。
+   用途：物理解算为保证球过网，只能给出接近竖直的拍面（实测法线仰角仅 -1°），
+   看着就是"亮拍 / 立着托球"；而真实弧圈是拍面前倾压住球、靠摩擦把球带起来。
+   由于 faceAdjust 会让压拍版与"不压拍版"按质量竞争、压狠了就被淘汰，
+   所以不能靠改物理 loft 实现，只能作为**视觉拍型**叠在渲染法线上。 */
+function faceDown(n, delta){
+  const L = Math.hypot(n[0], n[2]);
+  if (L < 1e-4 || !delta) return n.slice();
+  const pitch = Math.atan2(n[1], L) - delta;
+  const s = Math.cos(pitch);
+  return [n[0]/L*s, Math.sin(pitch), n[2]/L*s];
+}
 
 /* 二骨 IK（解析解）：给定根关节、末端目标、两段骨长、极向量(决定肘/膝朝向) → 中间关节坐标 */
 function ik2(root, target, l1, l2, poll){
@@ -3890,13 +3909,14 @@ function updateHuman(P, I, dt){
 
   // 球拍局部坐标系：法线 n = local +Z，拍柄方向 = local +Y
   const nV = vnorm(I.n);
+  const nVvis = faceDown(nV, I.faceDown || 0);   // 与 paddleQuat 同一份压拍法线 ⇒ 手与拍面始终对齐
   let rt = vcross([0,1,0], nV);
   if (vlen(rt) < 1e-3) rt = vcross([1,0,0], nV);
   rt = vnorm(rt);
-  const upV = vnorm(vcross(nV, rt));
+  const upV = vnorm(vcross(nVvis, rt));
   // 握把 / 手腕：沿"拍柄方向"（upV 绕法线转过握持 roll），直拍柄短、横拍柄长
   const Sg  = PAD_GEO[I.style] || PAD_GEO.penhold;
-  const gUp = paddleGripUp(nV, I.style, I.extraRoll || 0, { pose: I.pose, headDir: I.headDir, userRoll: I.userRoll || 0 });
+  const gUp = paddleGripUp(nVvis, I.style, I.extraRoll || 0, { pose: I.pose, headDir: I.headDir, userRoll: I.userRoll || 0 });
   const grip  = vadd(I.pos, vmul(gUp, -Sg.gripD));
   const wrist = vadd(I.pos, vmul(gUp, -(Sg.gripD + 0.047)));
 
