@@ -353,6 +353,7 @@
    ══════════════════════════════════════════════════════════════════ */
 let THREE = null;
 for (const url of [
+  './vendor/three.module.js',
   'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
   'https://unpkg.com/three@0.160.0/build/three.module.js',
   'https://esm.sh/three@0.160.0'
@@ -1163,9 +1164,11 @@ const TECH = {
            h2u:0.86, h2o:-0.12, h2f:0.20, rBack:0.08, rEnd:0.14,
            desc:'拍头朝上 · 拍面立 · 借力快挡' },
 };
-/* 准备期（还没进入本板挥拍）的中性拍型：拍头朝上略前、拍面立 ——
-   即接发球/发球前"亮着拍等球"的姿态，也是随挥收完后的归位姿态。 */
-const PREP_HEAD = { hu:0.78, ho:0.22, hf:0.38 };
+/* 准备期（还没进入本板挥拍）的中性拍型：
+   拍头朝前（对着对手，hf 主导）+ 拍面朝向左右两侧（空态法线沿左右）。
+   这是真实的"持拍等球"姿态：拍头领前、拍面侧对，正手/反手初始一致，
+   然后自然引拍击球。ho=0 ⇒ 正手反手初始拍型完全相同（用户要求）。 */
+const PREP_HEAD = { hu:0.15, ho:0.0, hf:0.95 };
 
 /* ── 打法风格（现役直板两面横打：费利克斯·勒布伦 / 邱党）────────────────────
    两人共同点：无推挡、反手全横打、正反手衔接快、重视前三板抢攻。
@@ -2125,7 +2128,7 @@ function aiPredictHit(){
 function aiThink(dt){
   const pad = G.ap, P = aiParamObj(), d = G.P.ai/100;
   if (!G.live || G.last === 'a'){            // 待机：回到中心
-    moveTowards(pad.p, [0, 0.98, -1.72], 2.2*dt); pad.n = [0,0,1];
+    moveTowards(pad.p, [0, 0.98, -1.72], 2.2*dt); pad.n = [-0.985, 0.0, 0];
     G.aiPlan = null; G.aiLock = null; return;
   }
   // ── 只在「还没有计划」时做一次预测 + 解算；此后目标点固定不变。
@@ -2812,8 +2815,8 @@ function updateCharacters(dt){
       const toC = vnorm(vsub(plan.c, [goalX, 1.0, goalZ]));
       idle[0] += toC[0]*0.10; idle[2] += toC[2]*0.10;
     }
-    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.26*amp)), vmul(F, 0.10*amp))  // 横打：收到腹前偏非持拍侧
-                  : vadd(vadd(base.slice(), vmul(R1,  0.38*amp)), vmul(F,-0.28*amp)); // 正手：引到持拍侧后下方（后引更充分）
+    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.22*amp)), vmul(F, 0.08*amp))  // 横打：收到腹前偏非持拍侧
+                  : vadd(vadd(base.slice(), vmul(R1,  0.30*amp)), vmul(F,-0.20*amp)); // 正手：紧凑后引（过度则改 0.30/0.20）
     // 引拍高度必须贴着击球点（攻/拉/扣略低于球、搓/挑略高于球）。
     // 旧式写死 0.80m，而肩高 1.35m ⇒ 垂直差 0.65m，身体只会水平前倾补不了垂直差，
     // 前臂胶囊被拉长到 1.5 倍 —— 这就是"正手回球不像真实"的直接观感来源。
@@ -2841,7 +2844,7 @@ function updateCharacters(dt){
       // P1 沿「远离触球点」方向外推：否则三次贝塞尔只是从当前位置单调趋近 cp，
       // 距离曲线一路下降 ⇒ 没有后引，观感又回到"推挡"（实测无后引时 d 单调递减）
       const away = vnorm(vsub(bs, cp));
-      const P1 = vadd(bs, vmul(away, 0.30*amp));
+      const P1 = vadd(bs, vmul(away, 0.20*amp));   // 后引外推：0.30→0.20 让引拍更紧凑、过渡更自然
       const P0 = pad.fromPos || bs;
       const A = vlerp(P0, P1, s), B = vlerp(P1, cc, s), C = vlerp(cc, cp.slice(), s);
       pos = vlerp(vlerp(A, B, s), vlerp(B, C, s), s);
@@ -2931,10 +2934,29 @@ function updateCharacters(dt){
     const gripRoll = 0.10*charCoil[who]*(bh?-1:1) + headRoll;   // 转腰 + 挥拍阶段 的拍柄朝向
 
     // ── 球拍朝向：法线 + 技术拍头方向（搓球朝前 / 攻球朝外上）+ 甩腕
-    const nV = vnorm(nv);
-    // 视觉压拍：只把渲染用的拍面法线「下压」faceDown，物理拍面 pad.n 不动
-    // （改物理 loft 会被 faceAdjust 的过网质量竞争淘汰，压不下去 ⇒ 看着全是亮拍）。
-    const nVvis = faceDown(nV, T.faceDown || 0);
+    // 视觉法线平滑：准备态拍面「侧对」（左右），来球后物理法线转为朝前，
+    // 直接代入会拍面瞬转 ⇒ 指数平滑（与位置同思路）让拍面自然转过去。
+    // 关键：平滑的「目标」用「已压拍的视觉法线」而非原始物理法线 —— 否则挥拍一结束
+    // 回到准备态时，平滑缓冲仍卡在原始偏开的法线（+17.5°）上、逐帧放松，过程中
+    // 拍面会短暂亮起 ⇒ 用户反馈「突然就变成亮拍了」。改用视觉目标后，收拍时拍面从
+    // 「压住」平滑回到「侧对（竖直）」，全程不经过亮面。
+    const idleNow = (tc === null && rel === null);
+    let nTarget;
+    if (idleNow){
+      nTarget = nv.slice();                       // 准备/归位：pad.n 已是侧对竖直线（玩家 +X / AI −X，Y=0）
+    } else {
+      // 挥拍中：原始物理法线下压；对非「亮面」技术额外保证不亮（搓/推允许亮面）
+      let fd = (T.faceDown || 0);
+      const openFace = (T.faceDown || 0) < 0.04;  // 搓 / 推：保留亮面（下旋需后仰）
+      if (!openFace){
+        const pv0 = Math.atan2(nv[1], Math.hypot(nv[0], nv[2]));
+        if (pv0 > -0.05) fd = Math.max(fd, pv0 + 0.06);   // 补压到 ≤ -3.4°
+      }
+      nTarget = faceDown(nv, fd);
+    }
+    if (!pad.vn) pad.vn = nTarget.slice();
+    pad.vn = vlerp(pad.vn, nTarget, 1 - Math.exp(-dt*24));
+    const nVvis = vnorm(pad.vn);
     // wristG：勒布伦发力不靠大臂抡甩，而是「前臂一闪 + 手腕抖出去」的寸劲
     const wk = (T.wrist || 1) * styleNow().wristG;
     const snap0 = wristSnap(tc, rel, bT, bS);
@@ -4109,7 +4131,10 @@ function loop(now){
   } else if (G.plan === null || !G.live){
     if (mouseActive()){ const mp = mouseToWorld(); moveTowards(pad.p, [mp[0],mp[1],pad.p[2]], 5*dt); }
     else moveTowards(pad.p, [0.1, 0.98, 1.72], 3*dt);
-    if (G.phase==='ready') pad.n = [0,0.06,-1];
+    // 准备/待机法线：拍面朝「左右两侧」（玩家右侧 +X，Y=0 ⇒ 拍面竖直、不张开=不亮拍），
+    // 与 PREP_HEAD 的「头朝前」配合 ⇒ 真实的持拍等球姿态；正手/反手初始一致。
+    // 旧值 [0,0.06,-1]=拍面朝对手；曾用 [0.985,0.17,0] 但 +0.17 的 Y 让拍面张开 9.8°（亮拍），已弃用。
+    pad.n = [0.985, 0.0, 0];
   }
 
   // 解算节流执行（参数/落点变化后重算，最快 120ms 一次）；定格中则立即重算
