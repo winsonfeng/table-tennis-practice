@@ -209,6 +209,12 @@
     <button id="b_bh_rpb" class="on">反手：直拍横打</button>
     <button id="b_bh_push">推挡</button>
   </div>
+  <div class="btns" id="stylebtns">
+    <button id="b_sty_lebrun" class="on" data-k="lebrun">打法：勒布伦式</button>
+    <button id="b_sty_qiu" data-k="qiu">邱党式</button>
+    <button id="b_sty_classic" data-k="classic">传统弧圈</button>
+  </div>
+  <div class="kv"><span class="k">打法风格</span><span class="n hl" id="r_sty">—</span></div>
   <label class="chk"><input type="checkbox" id="k_swing" checked>显示挥拍轨迹线</label>
   <div class="note">正手：<b>拍头朝外侧上方</b>（拍柄斜向内侧下方），不是举着拍头笔直朝上；反手默认用<b>直拍横打</b>——手腕外展、<b>拍背朝前</b>击球（<b>B</b> 键切换横打 / 推挡）。球打到身体<b>非持拍侧</b>时会自动切成反手动作。<br><b>W / S</b> 手动调整站位：<b>S = 退台</b>，<b>W = 上步</b>（也可用上面的滑块）。系统会按来球深浅<b>自动退台</b>。</div>
 
@@ -877,8 +883,10 @@ function findContact(incoming, side, target, P){
   // 真正打不到的球会因没有候选点（ownB 未达标 / 超出有效区）在上方自然 return null，
   // 而 40~75 这段「勉强但可回」的球交给后续 solveAutoSafe 保证落台即可。
   if (best.s0 > 75) return null;                       // 该来球确实无法有效回击
-  // 时机偏移：在误差可接受集合里选最接近 t*+offset 的点
-  const off = P.timing/1000;
+  // 时机偏移：在误差可接受集合里选最接近 t*+offset 的点。
+  // styleNow().rise < 0 ⇒ 抢上升期（勒布伦把所有击球点压在来球上升期），
+  // 即在"质量仍可接受"的候选池里尽量选更早的那个点。
+  const off = P.timing/1000 + styleNow().rise;
   const tStar = best.t + off;
   const pool = pick.filter(p => p.s0 < best.s0 + 0.22);
   let sel = pool[0];
@@ -1156,6 +1164,50 @@ const TECH = {
    即接发球/发球前"亮着拍等球"的姿态，也是随挥收完后的归位姿态。 */
 const PREP_HEAD = { hu:0.78, ho:0.22, hf:0.38 };
 
+/* ── 打法风格（现役直板两面横打：费利克斯·勒布伦 / 邱党）────────────────────
+   两人共同点：无推挡、反手全横打、正反手衔接快、重视前三板抢攻。
+   差异在站位深度与动作框架：
+   勒布伦 = 贴台（离台 30–40cm）抢上升期、几乎不退台、小框架、
+            大臂固定 / 肘为支点 / 前臂+手腕「寸劲」、还原极快（衔接 ~0.3s/板）。
+   邱党   = 近中台均衡，台内细腻，反手能减力贴防、防守转攻，动作略大于勒布伦。
+   传统   = 中远台弧圈，引拍幅度大、靠腰腿发力（本次改动前的默认行为）。
+   球台端线在 |z|=1.37，故 idleZ 1.70 ⇒ 离台 ≈33cm。 */
+const STYLES = {
+  lebrun: {
+    name:'勒布伦式', desc:'贴台抢上升期 · 小框架寸劲 · 全横打',
+    idleZ: 1.70,        // 待机站位（离台 ≈33cm）
+    behind: 0.27,       // 身体落在接触点后方
+    // retreatMax 是 findContact 的合法击球区扩展（决定"能不能接到深球"），
+    // 不能设太小：实测 0.50 ⇒ 深球 z>1.84 直接判无合法击球点而漏接，回合掉到 4~8 拍。
+    // 真实勒布伦被逼退台也会退（只是质量下降），所以这里放宽到 0.85，
+    // 而"不退台"由 posCap（身体站位真正后退多少）来体现。
+    retreatMax: 0.85,
+    posCap: 0.22,       // 退台对「身体站位」的贡献封顶（贴台 ⇒ 明显小于传统 0.40）
+    crouchG: 1.15,      // 重心压低
+    rise: -0.045,       // 抢上升期：击球时机提前（s）
+    ampNear: 0.52,      // 贴台时的动作幅度（小框架）
+    ampFar: 0.92,       // 被逼退台时放大（保留正手大弧线）
+    recover: 0.62,      // 随挥+复位总时长系数（还原快）
+    wristG: 1.40,       // 手腕 / 前臂分量（寸劲）
+    elbowIn: 0.34,      // 肘贴身（极向量的持拍侧外扩收紧）
+    swingG: 0.72,       // 随挥幅度（短促，发力后立即放松）
+  },
+  qiu: {
+    name:'邱党式', desc:'近中台均衡 · 台内细腻 · 能攻能防',
+    idleZ: 1.84, behind: 0.31, retreatMax: 0.95, posCap: 0.32, crouchG: 1.05,
+    rise: -0.022, ampNear: 0.70, ampFar: 1.00, recover: 0.80,
+    wristG: 1.18, elbowIn: 0.20, swingG: 0.88,
+  },
+  classic: {
+    name:'传统弧圈', desc:'中远台 · 大引拍 · 腰腿发力',
+    idleZ: 1.92, behind: 0.35, retreatMax: 1.10, posCap: 0.40, crouchG: 1.00,
+    rise: 0, ampNear: 1.00, ampFar: 1.00, recover: 1.00,
+    wristG: 1.00, elbowIn: 0.00, swingG: 1.00,
+  },
+};
+let styleKey = 'lebrun';
+const styleNow = () => STYLES[styleKey] || STYLES.lebrun;
+
 /* ── 发球类型：每种发球 = 旋转(brush) + 落点目标 + 说明 ──
    brush[0]=上/下旋（正=上旋，负=下旋），brush[1]=侧旋（± 决定横向拐向）。
    tgt 以「玩家视角」给出（z 取负 = 对方半台深度），AI 发球时按 side 镜像。 */
@@ -1280,8 +1332,8 @@ function counterLoopRetreat(who){
   // 启用开关：用户可通过滑块关闭自动退台
   if (typeof G.P.clRetreat !== 'undefined' && G.P.clRetreat === 0) return 0;
   const retreatScale = (G.P.clRetreat !== undefined) ? G.P.clRetreat / 100 : 1.0;
-  // 渐进退台：0.18m/板，上限 1.10m（清晰的中远台效果，且仍在可稳定回球范围）
-  const retreat = clamp((cl.hits - 1) * 0.18, 0, 1.10) * retreatScale;
+  // 渐进退台：0.18m/板；上限由打法风格决定（勒布伦几乎不退台 ⇒ 0.50m）
+  const retreat = clamp((cl.hits - 1) * 0.18, 0, styleNow().retreatMax) * retreatScale;
   return retreat;
 }
 
@@ -1408,6 +1460,22 @@ function syncServeUI(){
       tag.textContent = SERVES[G.serveKey] ? SERVES[G.serveKey].name : '随机变化';
     else tag.textContent = (serveLock === 'auto') ? '随机变化' : SERVES[serveLock].name;
   }
+}
+/* ── 打法风格（勒布伦式 / 邱党式 / 传统弧圈）── */
+function setStyle(k){
+  styleKey = STYLES[k] ? k : 'lebrun';
+  const S = styleNow();
+  // 现役直板（勒布伦 / 邱党）都是「无推挡、反手全横打」⇒ 切过去时强制直拍横打
+  if (styleKey !== 'classic' && playerBH !== 'rpb') setBH('rpb');
+  syncStyleUI();
+  planDirty = true;
+  if (typeof toast === 'function') toast(S.name, S.desc);
+}
+function syncStyleUI(){
+  const tb = document.getElementById('stylebtns');
+  if (tb) Array.from(tb.children).forEach(b=> b.classList.toggle('on', b.dataset.k === styleKey));
+  const r = document.getElementById('r_sty');
+  if (r){ const S = styleNow(); r.textContent = S.name + ' · ' + S.desc; }
 }
 /* ── 接发球手段（'auto' = 按来球自动）── */
 const RECV_UI = ['', 'chop', 'twist', 'flick', 'lob'];
@@ -2649,7 +2717,8 @@ function updateCharacters(dt){
       // 旧写法把整个退台(≤1.10m)都加到身后 ⇒ 身体离击球点最远 1.45m，远超
       // 臂长(0.55m)+前倾(0.55m)+送肩(0.13m)≈1.2m 的有效触及，手臂被拉成 2 倍（橡皮筋）。
       // 退台的「深」由 findContact 接触点变深 + 相机拉远来体现，身体只在身后留一小段即可。
-      const behind = 0.35 + Math.min(counterLoopRetreat(who), 0.40)
+      // behind / posCap 由打法风格给：勒布伦贴台（身体几乎就在接触点正后方）
+      const behind = styleNow().behind + Math.min(counterLoopRetreat(who), styleNow().posCap)
                           + (who==='p' ? (G.stanceOff||0) : 0);
       goalZ = clamp(Math.abs(plan.c[2]) + behind, 1.42, 3.8);
       pad.hold = [goalX - latOff, goalZ];     // 锁定本拍站位（不含手动偏移 / 未带方向符号）
@@ -2662,7 +2731,7 @@ function updateCharacters(dt){
       pad.hold = null;
       // 待机位略偏反手侧（正手覆盖面更大），符合真实准备姿势
       goalX = -0.10*(who==='p' ? 1 : -1) + latOff;
-      goalZ = clamp(1.92 + stanceBias(who), 1.42, 3.8);
+      goalZ = clamp(styleNow().idleZ + stanceBias(who), 1.42, 3.8);
     }
     goalZ *= dirB;
 
@@ -2679,7 +2748,9 @@ function updateCharacters(dt){
 
     // ── 屈膝：球越低蹲得越深；出手瞬间额外下压
     const cy = plan && anyLive ? plan.c[1] : pad.p[1];
-    const crouch = clamp((1.16-cy)/0.42, 0, 1)*0.72 + (tc!==null && tc<0.22 ? 0.10 : 0);
+    // crouchG：勒布伦「重心压得极低、压在前脚掌」⇒ 整体下蹲更深
+    const crouch = clamp((clamp((1.16-cy)/0.42, 0, 1)*0.72
+                          + (tc!==null && tc<0.22 ? 0.10 : 0)) * styleNow().crouchG, 0, 0.90);
 
     // ── 正手 / 反手：击球点在持拍手一侧 = 正手；越过身体中线到另一侧 = 反手
     const refX = (plan && anyLive && G.last !== who) ? plan.c[0] : pad.p[0];
@@ -2714,7 +2785,11 @@ function updateCharacters(dt){
     if (isNew){ pad.fromPos = pad.vpos ? pad.vpos.slice() : null; pad.tc0 = tc; }
     if (tc !== null && tc > (pad.newTc || 0)) pad.newTc = tc;
     const tc0  = pad.tc0 || 0.55;
-    const amp  = clamp(tc0/0.62, 0.45, 1);                  // 引拍幅度：时间紧 → 动作紧凑
+    // 动作幅度按站位深度自适应：贴台（勒布伦）根本摆不开 ⇒ 小框架紧凑动作；
+    // 只有被逼退台才放大 —— 近台紧凑与"退台正手大弧线"两者兼得。
+    const depth = clamp((Math.abs(goalZ) - 1.55) / 0.85, 0, 1);   // 0=贴台 1=退台
+    const stAmp = styleNow().ampNear + (styleNow().ampFar - styleNow().ampNear) * depth;
+    const amp  = clamp(tc0/0.62, 0.45, 1) * stAmp;          // 引拍幅度：时间紧 / 贴台 → 动作紧凑
 
     // ── 转腰（拉拍蓄力 → 击球 → 随挥）；反手转腰方向相反
     // 转腰窗口跟着来球的可用时间走：快球（tc0 小）转腰更早开始，与拍头同步
@@ -2773,15 +2848,19 @@ function updateCharacters(dt){
       const hPos = (relFromHit && pad.hitPos && pad.hitPos.length) ? pad.hitPos : (pad.vpos || cp);
       const nH  = vnorm(pad.hitN && pad.hitN.length ? pad.hitN : nv);
       // 随挥加大（0.36 前 / 0.46 横向 / 0.38 上）：正手收拍到左肩上方，
-      // 完成「右下→左上」的完整弧线；反手镜像向右上
-      const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.36*T.swing)), vmul(R1, -0.46*T.swing*sw));
-      ft[1] += 0.38*T.swing;
+      // 完成「右下→左上」的完整弧线；反手镜像向右上。
+      // swingG：勒布伦短促发力、拍头自然弹回 ⇒ 随挥幅度收小。
+      const Tsw = (T.swing || 1) * styleNow().swingG;
+      const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.36*Tsw)), vmul(R1, -0.46*Tsw*sw));
+      ft[1] += 0.38*Tsw;
       // 随挥 0.38s + 复位 0.26s ⇒ rel≈0.64 就回到预备位。
       // 旧值（0.55 + 0.50 = 1.05s）来不及：对手来球在 rel≈0.6 就到了，
       // 于是「归位」和「引拍」挤在一起，1m 的归位位移把 7cm 的引拍完全淹没，
       // 观感就是球拍一路直奔触球点（推挡）。
-      const g  = Math.pow(clamp(rel/0.38,0,1), 0.55);      // 随挥展开
-      const bk = clamp((rel-0.38)/0.26, 0, 1);             // 复位收回
+      // recover < 1（勒布伦 0.62）⇒ 还原更快，衔接 ~0.3s/板。
+      const rc = styleNow().recover, tFin = 0.38*rc, tBak = 0.26*rc;
+      const g  = Math.pow(clamp(rel/tFin,0,1), 0.55);      // 随挥展开
+      const bk = clamp((rel-tFin)/tBak, 0, 1);             // 复位收回
       finG = g; bkG = bk;
       pos = vlerp(vlerp(hPos.slice(), ft, g), idle, bk*bk*(3-2*bk));
     } else if (tc !== null){
@@ -2850,7 +2929,8 @@ function updateCharacters(dt){
 
     // ── 球拍朝向：法线 + 技术拍头方向（搓球朝前 / 攻球朝外上）+ 甩腕
     const nV = vnorm(nv);
-    const wk = T.wrist || 1;
+    // wristG：勒布伦发力不靠大臂抡甩，而是「前臂一闪 + 手腕抖出去」的寸劲
+    const wk = (T.wrist || 1) * styleNow().wristG;
     const snap0 = wristSnap(tc, rel, bT, bS);
     // 甩腕：正手是内旋加速，反手（横打）是外展甩出 → 方向相反
     const snap  = bh ? { spin:-snap0.spin*wk, side:-snap0.side*wk }
@@ -3163,6 +3243,16 @@ function bind(){
       tb.appendChild(b);
     });
     syncRecvUI();
+  }
+  // 打法风格按钮（勒布伦式 / 邱党式 / 传统弧圈）
+  {
+    const tb = $('stylebtns');
+    if (tb) Array.from(tb.children).forEach(b=>{
+      const k = b.dataset.k || 'lebrun';
+      b.title = (STYLES[k] ? STYLES[k].desc : '');
+      b.onclick = ()=>setStyle(k);
+    });
+    syncStyleUI();
   }
   $('b_frz').onclick    = ()=>setFrzMode(!G.frz.on);
   $('b_frznow').onclick = ()=>frzNow();
@@ -3876,8 +3966,11 @@ function updateHuman(P, I, dt){
 
   // 持拍手（右手或左手）
   const ri = P.rightHanded ? 0 : 1, li = 1-ri;
-  // 肘部极向量：由「技术拍型」决定（正手攻肘在持拍侧后下；直拍横打肘收在身前；搓球肘前伸）
-  const pl = (I.pose && I.pose.poll) || [0.95,-0.40,-0.55];
+  // 肘部极向量：由「技术拍型」决定（正手攻肘在持拍侧后下；直拍横打肘收在身前；搓球肘前伸）。
+  // elbowIn：勒布伦「大臂基本不动、肘关节作为支点略微前顶」⇒ 把肘往身体收，
+  // 摆动交给前臂与手腕，动作框架更小、出球更快。
+  const pl0 = (I.pose && I.pose.poll) || [0.95,-0.40,-0.55];
+  const pl  = [pl0[0]*(1 - styleNow().elbowIn), pl0[1], pl0[2]];
   const pollA = vnorm(vadd(vadd(vmul(Rp, pl[0]), vmul(Fp, pl[1])), [0, pl[2], 0]));
   const elbow = ik2(shR, wrist, 0.295, 0.255, pollA);
   const eL = P.armU[ri]; setBone(eL, shR, elbow);
@@ -4067,6 +4160,7 @@ window.__PONG.doServe = doServe; window.__PONG.computePlan = computePlan;
 window.__PONG.findContact = findContact; window.__PONG.paramObj = paramObj;
 window.__PONG.solveShot = solveShot; window.__PONG.evalShot = evalShot;
 window.__PONG.SERVES = SERVES; window.__PONG.setServe = setServe; window.__PONG.setRecv = setRecv;
+window.__PONG.STYLES = STYLES; window.__PONG.styleNow = styleNow; window.__PONG.setStyle = setStyle;
 window.__PONG.serveTry = serveTry; window.__PONG.solveServe = solveServe;
 window.__PONG.faceAdjust = faceAdjust; window.__PONG.techOpt = techOpt;
 window.__PONG.recvTech = recvTech; window.__PONG.stageTech = stageTech;
