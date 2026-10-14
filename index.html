@@ -2651,7 +2651,9 @@ function updateCharacters(dt){
     goalZ *= dirB;
 
     // ── 优化：站位过渡更自然（避免突然跳变）
-    const smoothFactor = 0.85;
+    // 旧写法是每帧固定 0.85（与帧率无关的固定比例）⇒ 目标点一帧就跳掉 85%，
+    // 身体随后猛加速再到位急停 —— 移动抽搐的另一大来源。改成按时间指数收敛。
+    const smoothFactor = 1 - Math.exp(-dt*16);
     const prevGoalX = pad.prevGoalX || goalX;
     const prevGoalZ = pad.prevGoalZ || goalZ;
     goalX = prevGoalX + (goalX - prevGoalX) * smoothFactor;
@@ -2684,8 +2686,23 @@ function updateCharacters(dt){
     const pose = padPose(styleI, who, bh, techKey);
     if (who === 'p') G.padPoseP = { bh, pose, style:styleI, tech:techKey, headDir };
 
+    // ── 新来球检测：tc 会从前一拍的 null 瞬间跳回 ~0.66（可用准备时间 tc0）。
+    //    真实手感是「来球越快、引拍越小越短」，所以引拍幅度与引拍时长都随 tc0 缩放；
+    //    固定 0.46s 引拍 + 固定 0.38m 幅度，在 tc0≈0.6 的快球上根本来不及铺开，
+    //    目标会在 tc 跨过引拍窗口的那一帧突跳到完整引拍位（实测 1.15m）⇒ 挥拍抽搐。
+    //    注意：tc 无球期间必须把 newTc 归零，否则每球 tc 都从同一值起步、永远
+    //    触发不了 isNew，fromPos 会停留在几拍前的陈旧位置 —— 坡道就失效了。
+    //    （必须放在 coilT 之前：tc0 是 const，后面用会踩 TDZ）
+    if (tc === null || tc <= 0.02) pad.newTc = 0;
+    const isNew = (tc !== null) && (tc > (pad.newTc || 0) + 0.05);
+    if (isNew){ pad.fromPos = pad.vpos ? pad.vpos.slice() : null; pad.tc0 = tc; }
+    if (tc !== null && tc > (pad.newTc || 0)) pad.newTc = tc;
+    const tc0  = pad.tc0 || 0.55;
+    const amp  = clamp(tc0/0.62, 0.45, 1);                  // 引拍幅度：时间紧 → 动作紧凑
+
     // ── 转腰（拉拍蓄力 → 击球 → 随挥）；反手转腰方向相反
-    const coilT = swingCoil(tc, rel, bh ? -1 : 1);
+    // 转腰窗口跟着来球的可用时间走：快球（tc0 小）转腰更早开始，与拍头同步
+    const coilT = swingCoil(tc, rel, bh ? -1 : 1, clamp(tc0*0.85, 0.25, 0.58));
     charCoil[who] += (coilT - charCoil[who]) * Math.min(1, dt*11);
 
     // ── 完整挥拍时间轴：预备 → 引拍 → 加速 → 触球 → 随挥 → 复位（不再是"粘着预测点不动"）
@@ -2701,30 +2718,37 @@ function updateCharacters(dt){
       const toC = vnorm(vsub(plan.c, [goalX, 1.0, goalZ]));
       idle[0] += toC[0]*0.10; idle[2] += toC[2]*0.10;
     }
-    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.26)), vmul(F, 0.08))   // 横打：收到腹前偏非持拍侧
-                  : vadd(vadd(base.slice(), vmul(R1,  0.38)), vmul(F,-0.16));  // 正手：引到持拍侧后下方（加大蓄力幅度）
+    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.26*amp)), vmul(F, 0.10*amp))  // 横打：收到腹前偏非持拍侧
+                  : vadd(vadd(base.slice(), vmul(R1,  0.38*amp)), vmul(F,-0.28*amp)); // 正手：引到持拍侧后下方（后引更充分）
     // 引拍高度必须贴着击球点（攻/拉/扣略低于球、搓/挑略高于球）。
     // 旧式写死 0.80m，而肩高 1.35m ⇒ 垂直差 0.65m，身体只会水平前倾补不了垂直差，
     // 前臂胶囊被拉长到 1.5 倍 —— 这就是"正手回球不像真实"的直接观感来源。
     const bsY = (T.hf > 0.5) ? clamp(cy + 0.06, 0.92, 1.32)          // 搓/挑：球上方下切
                              : clamp(cy - 0.14, 0.86, 1.46);          // 攻/拉/扣：球下方上挥
     bs[1] = bsY - 0.06*crouch - (T.hf > 0.5 ? 0 : 0.10*clamp(P.spin/100,0,1));
-    const HITW = 0.46;                                     // 引拍 → 触球 的时长
     const pwK  = clamp(P.power/100, 0, 1);
     if (tc !== null && tc > 0.02){
-      const u = clamp((1.15 - tc)/0.70, 0, 1);             // 提前 1.15s 从预备位走向引拍位
-      const pre = vlerp(idle, bs, u*u*(3-2*u));
-      if (tc < HITW){
-        // 弧线挥拍（二次贝塞尔）：控制点比 bs→cp 弦线更低、更偏持拍侧，
-        // 让球拍先沉向右下，再以「右下→左上」的斜线捞过触球点 ——
-        // 触球瞬间拍面运动方向 = up-left-forward（正手弧圈的摩擦方向），
-        // 而不是旧直线插值的"平推向前"（观感像推挡/反手）。
-        const k = Math.pow(1 - tc/HITW, 1.8 + 1.7*pwK);
-        const cc = vadd(vmul(vadd(bs, cp.slice()), 0.5), vmul(R1, 0.07*sw));
-        cc[1] -= 0.06;
-        const a = vlerp(bs, cc, k), b = vlerp(cc, cp.slice(), k);
-        pos = vlerp(a, b, k);
-      } else pos = pre;
+      // ── 一条连续曲线走完「引拍 → 挥拍 → 触球」（三次贝塞尔）：
+      //     P0 = 新来球出现时的实际拍位（起点不跳）
+      //     P1 = bs  把拍头往后/往外拉 ⇒ 引拍蓄力
+      //     P2 = cc  比 bs→cp 弦线更低、更偏持拍侧 ⇒ 拍头先沉向右下，
+      //              再以「右下→左上」的斜线捞过触球点（正手弧圈的摩擦方向）
+      //     P3 = cp  触球点
+      //   旧写法是「坡道走到引拍位（smoothstep 末端速度归零）→ 再起挥（k^p 起始
+      //   速度也是 0）」，中间速度掉到 0 就是挥拍前那一下顿挫（抽搐）。三次贝塞尔
+      //   天然 C¹ 连续，起步慢、触球前最快，一气呵成。
+      const u = clamp(1 - tc/Math.max(0.12, tc0), 0, 1);
+      const s = Math.pow(u, 1.7 + 0.9*pwK);
+      // P2 比弦线更低、更偏持拍侧 ⇒ 拍头先沉向右下，再「右下→左上」捞过触球点
+      const cc = vadd(vmul(vadd(bs, cp.slice()), 0.5), vmul(R1, 0.14*sw*amp));
+      cc[1] -= 0.10;
+      // P1 沿「远离触球点」方向外推：否则三次贝塞尔只是从当前位置单调趋近 cp，
+      // 距离曲线一路下降 ⇒ 没有后引，观感又回到"推挡"（实测无后引时 d 单调递减）
+      const away = vnorm(vsub(bs, cp));
+      const P1 = vadd(bs, vmul(away, 0.30*amp));
+      const P0 = pad.fromPos || bs;
+      const A = vlerp(P0, P1, s), B = vlerp(P1, cc, s), C = vlerp(cc, cp.slice(), s);
+      pos = vlerp(vlerp(A, B, s), vlerp(B, C, s), s);
     } else if (rel !== null){
       // 只有真的打到球才从 hitPos 起手；未命中时从当前视觉位置起手
       // （用 cp 会与已锁定到物理拍的视觉位置突跳；用 vpos 完全连续）
@@ -2734,29 +2758,42 @@ function updateCharacters(dt){
       // 完成「右下→左上」的完整弧线；反手镜像向右上
       const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.36*T.swing)), vmul(R1, -0.46*T.swing*sw));
       ft[1] += 0.38*T.swing;
-      const g  = Math.pow(clamp(rel/0.55,0,1), 0.55);      // 随挥展开
-      const bk = clamp((rel-0.55)/0.50, 0, 1);             // 复位收回
+      // 随挥 0.38s + 复位 0.26s ⇒ rel≈0.64 就回到预备位。
+      // 旧值（0.55 + 0.50 = 1.05s）来不及：对手来球在 rel≈0.6 就到了，
+      // 于是「归位」和「引拍」挤在一起，1m 的归位位移把 7cm 的引拍完全淹没，
+      // 观感就是球拍一路直奔触球点（推挡）。
+      const g  = Math.pow(clamp(rel/0.38,0,1), 0.55);      // 随挥展开
+      const bk = clamp((rel-0.38)/0.26, 0, 1);             // 复位收回
       pos = vlerp(vlerp(hPos.slice(), ft, g), idle, bk*bk*(3-2*bk));
     } else if (tc !== null){
       pos = cp.slice();                                    // 触球那一两帧：精确落在物理接触点
     } else pos = idle;
-    // ── 触球前 0.30s：视觉拍逐步锁定到物理拍（pad.p）
+    // ── 触球前 0.22s：视觉拍逐步锁定到物理拍（pad.p）。锁定窗口太宽（0.30s）会
+    //    把贝塞尔弧线的最后一段整段覆盖成直线，弧圈动作又被抹平成推挡。
     //    物理拍已提前到位等球，视觉拍若只按时间轴走，落点预测误差会让球看似
     //    在空气旁被弹回（实测击球瞬间视觉-物理偏差中位 0.15m / 最大 1.1m，
     //    而拍面半径仅 ~0.08m）。lock 随时间轴平滑升到 1，触球帧完全重合。
     if (tc !== null){
-      const lock = clamp(1 - tc/0.30, 0, 1);
+      const lock = clamp(1 - tc/0.22, 0, 1);
       const w = lock*lock*(3-2*lock);
       if (w > 0) pos = vlerp(pos, pad.p, w);
     }
-    // 轻微软跟随（去掉抖动），但触球瞬间必须精确落在物理接触点上
-    if (pad.vpos && (tc === null || tc > 0.03)) pos = vlerp(pad.vpos, pos, Math.min(1, dt*22));
-    // ── 位置速率限制（修复换拍抽搐）：新来球到达时，挥拍时间轴从「随挥」瞬间
-    //    跳回「预备」，目标位可能突跳 1.4m；软跟随因子 dt*22 在掉帧时=1（完全不
-    //    起平滑作用）⇒ 球拍整体瞬移。正常挥拍峰值仅 ~4 m/s，这里封顶 9 m/s：
-    //    任何情况下瞬移都变成约 0.15s 的快速收拍，连续且自然。
+    // 诊断：平滑前「目标 - 当前」的距离；dbgTgt 用于测「目标自身的逐帧跳变」
+    pad.dbgTgt = pos.slice();
+    if (pad.vpos) pad.dbgGap = Math.hypot(pos[0]-pad.vpos[0], pos[1]-pad.vpos[1], pos[2]-pad.vpos[2]);
+    // 轻微软跟随（去掉抖动），但触球瞬间必须精确落在物理接触点上。
+    // 用 1-exp(-dt*k) 替代 min(1,dt*22)：与帧率无关，且是真正的指数收敛。
+    // 触球前把 k 从 22 渐进拉到 ~300：旧写法是「tc<=0.03 时直接关掉平滑」，
+    // 而那一帧视觉拍仍滞后约 0.14m（速度 3m/s ÷ 22），关掉就等于瞬间补齐
+    // ⇒ 触球那一刻的一帧突跳，正是"挥拍瞬间抽搐"的来源之一。
+    const nearK = (tc === null) ? 0 : Math.pow(clamp(1 - tc/0.20, 0, 1), 3);
+    if (pad.vpos) pos = vlerp(pad.vpos, pos, 1 - Math.exp(-dt*(22 + 300*nearK)));
+    // ── 极限速只兜底防瞬移：新来球到达时，挥拍时间轴从「随挥」瞬间跳回
+    //   「预备」，目标位可能突跳 1.4m；掉帧时平滑因子=1 会整体瞬移。
+    //   注意 9 m/s 的硬限速会让球拍整段"匀速平移 + 到位急停" ⇒ 观感抽搐。
+    //   改成以指数平滑主导、限速只做兜底（14 m/s）：修正动作自然减速收尾。
     if (pad.vpos){
-      const maxStep = 9.0 * dt;
+      const maxStep = 14.0 * dt;
       const dx = pos[0]-pad.vpos[0], dy = pos[1]-pad.vpos[1], dz = pos[2]-pad.vpos[2];
       const L = Math.hypot(dx, dy, dz);
       if (L > maxStep && L > 1e-6){
@@ -2801,10 +2838,14 @@ function updateCharacters(dt){
     }, dt);
     VIS['head'+(who==='p'?'P':'A')] = anchor.head;
     VIS['stance'+(who==='p'?'P':'A')] = [H.stance[0], H.stance[1]];
+    VIS['gap'+(who==='p'?'P':'A')] = pad.dbgGap || 0;
+    VIS['tc'+(who==='p'?'P':'A')] = tc; VIS['rel'+(who==='p'?'P':'A')] = rel;
     if (who === 'p'){
       VIS.head = anchor.head; VIS.hip = anchor.hip; VIS.elbow = anchor.elbow;
       VIS.look = lookTarget; VIS.racket = pos; VIS.racketN = nv; VIS.grip = anchor.grip; VIS.wristP = anchor.wrist;
       VIS.stance = [H.stance[0], H.stance[1]];
+      VIS.gap = pad.dbgGap || 0; VIS.tc = tc; VIS.rel = rel; VIS.bh = bh;
+      VIS.tgt = pad.dbgTgt; VIS.cur = pad.vpos; VIS.tc0 = pad.tc0;
     }
 
     // ── 挥拍轨迹
@@ -3501,9 +3542,12 @@ function ik2(root, target, l1, l2, poll){
   p = vmul(p, 1/pl);
   return vadd(vadd(root, vmul(dir,a)), vmul(p,h));
 }
-function move2(cur, tgt, step){
+function move2(cur, tgt, step, dt){
   const dx=tgt[0]-cur[0], dz=tgt[1]-cur[1], L=Math.hypot(dx,dz)||1;
-  const s = Math.min(step, L);
+  // 指数收敛：越接近目标越慢，自然减速收尾。
+  // 旧写法是"匀速平移 + 到位急停"—— 这正是移动/站位抽搐的直接来源。
+  const ease = dt ? (1 - Math.exp(-dt*9)) : 1;
+  const s = Math.min(step, L*ease);
   cur[0]+=dx/L*s; cur[1]+=dz/L*s;
 }
 /* 站位移动（绕开球台）：路径若穿过台面区，先横向绕到台侧 → 沿台侧纵向绕 → 再进入目标 */
@@ -3516,7 +3560,7 @@ function segCrossTable(a, b){
   }
   return false;
 }
-function moveStance(cur, tgt, step){
+function moveStance(cur, tgt, step, dt){
   let goal = tgt;
   if (segCrossTable(cur, tgt)){
     const sx  = cur[0] >= 0 ? 1 : -1;
@@ -3525,7 +3569,7 @@ function moveStance(cur, tgt, step){
     else if (Math.abs(cur[1] - tgt[1]) > 0.08)  goal = [wx, tgt[1]];   // ② 沿台侧纵向绕行
     else                                        goal = tgt;            // ③ 进入目标点
   }
-  move2(cur, goal, step);
+  move2(cur, goal, step, dt);
 }
 
 /* 骨段：几何体原点在关节处，沿局部 -Y 延伸，便于按 (from,to) 对齐 */
@@ -3704,7 +3748,7 @@ function stepFeet(P, dt, F, R1){
 /* 依据球拍位姿把整个人物摆位 */
 function updateHuman(P, I, dt){
   const F = I.facing, R1 = vnorm(vcross(F,[0,1,0]));
-  moveStance(P.stance, I.stance, I.speed*dt);
+  moveStance(P.stance, I.stance, I.speed*dt, dt);
   stepFeet(P, dt, F, R1);
 
   // 球拍局部坐标系：法线 n = local +Z，拍柄方向 = local +Y
@@ -3852,9 +3896,10 @@ const hAI     = buildHuman(0xf5c9a2, 0x2fa84a, 0x5b3fa8, 0x3a2f2a, true, false, 
 
 /* 挥拍 / 手腕的时间轴°：
    tc = 距击球的剩余时间，rel = 击球后经过的时间 */
-function swingCoil(tc, rel, sign){
-  if (tc !== null && tc > 0.50) return 0;
-  if (tc !== null && tc > 0.02) return -0.82*(1-tc/0.50)*sign;      // 引拍：反向转腰蓄力（加大，转腰更明显）
+function swingCoil(tc, rel, sign, win){
+  const W = win || 0.50;
+  if (tc !== null && tc > W) return 0;
+  if (tc !== null && tc > 0.02) return -0.82*(1-tc/W)*sign;         // 引拍：反向转腰蓄力（加大，转腰更明显）
   if (rel !== null && rel < 0.60) return  0.66*Math.exp(-rel*4.0)*sign; // 击球后随挥继续转过
   return 0;
 }
