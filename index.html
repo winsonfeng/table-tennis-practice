@@ -1733,6 +1733,10 @@ function doServe(){
     const H = who==='p' ? hPlayer : hAI;
     const wantZ = (who==='p' ? 1 : -1) * 1.80;
     if (H && Math.abs(H.stance[1] - wantZ) > 0.20) H.stance[1] += (wantZ - H.stance[1]) * 0.9;
+    // 视觉拍直接就位到发球位：doServe 可能在上一分刚结束、球拍还在随挥时被
+    // 触发（空格连按），不就位的话球会从旧拍位"隔空"发出 0.1~0.2s。
+    // 回合边界本身球/站位就是瞬时重置的，拍就位与之一致，不显突兀。
+    pad.vpos = [pad.p[0], pad.p[1], pad.p[2]];
   }
   const c = [G.st[0],G.st[1],G.st[2],0,0,0,0,0,0];
   const P = who==='p' ? paramObj() : aiParamObj();
@@ -2698,7 +2702,7 @@ function updateCharacters(dt){
       idle[0] += toC[0]*0.10; idle[2] += toC[2]*0.10;
     }
     const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.26)), vmul(F, 0.08))   // 横打：收到腹前偏非持拍侧
-                  : vadd(vadd(base.slice(), vmul(R1,  0.34)), vmul(F,-0.10));  // 正手：引到持拍侧后下方
+                  : vadd(vadd(base.slice(), vmul(R1,  0.38)), vmul(F,-0.16));  // 正手：引到持拍侧后下方（加大蓄力幅度）
     // 引拍高度必须贴着击球点（攻/拉/扣略低于球、搓/挑略高于球）。
     // 旧式写死 0.80m，而肩高 1.35m ⇒ 垂直差 0.65m，身体只会水平前倾补不了垂直差，
     // 前臂胶囊被拉长到 1.5 倍 —— 这就是"正手回球不像真实"的直接观感来源。
@@ -2710,14 +2714,26 @@ function updateCharacters(dt){
     if (tc !== null && tc > 0.02){
       const u = clamp((1.15 - tc)/0.70, 0, 1);             // 提前 1.15s 从预备位走向引拍位
       const pre = vlerp(idle, bs, u*u*(3-2*u));
-      pos = tc < HITW ? vlerp(pre, cp.slice(), Math.pow(1 - tc/HITW, 1.8 + 1.7*pwK)) : pre;
+      if (tc < HITW){
+        // 弧线挥拍（二次贝塞尔）：控制点比 bs→cp 弦线更低、更偏持拍侧，
+        // 让球拍先沉向右下，再以「右下→左上」的斜线捞过触球点 ——
+        // 触球瞬间拍面运动方向 = up-left-forward（正手弧圈的摩擦方向），
+        // 而不是旧直线插值的"平推向前"（观感像推挡/反手）。
+        const k = Math.pow(1 - tc/HITW, 1.8 + 1.7*pwK);
+        const cc = vadd(vmul(vadd(bs, cp.slice()), 0.5), vmul(R1, 0.07*sw));
+        cc[1] -= 0.06;
+        const a = vlerp(bs, cc, k), b = vlerp(cc, cp.slice(), k);
+        pos = vlerp(a, b, k);
+      } else pos = pre;
     } else if (rel !== null){
       // 只有真的打到球才从 hitPos 起手；未命中时从当前视觉位置起手
       // （用 cp 会与已锁定到物理拍的视觉位置突跳；用 vpos 完全连续）
       const hPos = (relFromHit && pad.hitPos && pad.hitPos.length) ? pad.hitPos : (pad.vpos || cp);
       const nH  = vnorm(pad.hitN && pad.hitN.length ? pad.hitN : nv);
-      const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.30*T.swing)), vmul(R1, -0.34*T.swing*sw));
-      ft[1] += 0.28*T.swing;
+      // 随挥加大（0.36 前 / 0.46 横向 / 0.38 上）：正手收拍到左肩上方，
+      // 完成「右下→左上」的完整弧线；反手镜像向右上
+      const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.36*T.swing)), vmul(R1, -0.46*T.swing*sw));
+      ft[1] += 0.38*T.swing;
       const g  = Math.pow(clamp(rel/0.55,0,1), 0.55);      // 随挥展开
       const bk = clamp((rel-0.55)/0.50, 0, 1);             // 复位收回
       pos = vlerp(vlerp(hPos.slice(), ft, g), idle, bk*bk*(3-2*bk));
@@ -3838,8 +3854,8 @@ const hAI     = buildHuman(0xf5c9a2, 0x2fa84a, 0x5b3fa8, 0x3a2f2a, true, false, 
    tc = 距击球的剩余时间，rel = 击球后经过的时间 */
 function swingCoil(tc, rel, sign){
   if (tc !== null && tc > 0.50) return 0;
-  if (tc !== null && tc > 0.02) return -0.62*(1-tc/0.50)*sign;      // 引拍：反向转腰蓄力
-  if (rel !== null && rel < 0.60) return  0.52*Math.exp(-rel*4.0)*sign; // 击球后随挥继续转过
+  if (tc !== null && tc > 0.02) return -0.82*(1-tc/0.50)*sign;      // 引拍：反向转腰蓄力（加大，转腰更明显）
+  if (rel !== null && rel < 0.60) return  0.66*Math.exp(-rel*4.0)*sign; // 击球后随挥继续转过
   return 0;
 }
 function wristSnap(tc, rel, bTop, bSide){
