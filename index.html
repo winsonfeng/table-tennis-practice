@@ -1727,6 +1727,13 @@ function doServe(){
   const who = G.server;                    // 'p' | 'a'
   const side = who==='p' ? -1 : 1;
   const pad = who==='p' ? G.pp : G.ap;
+  // 刚结束退台对拉时身体可能还停在 3m 外：先收回到发球位，
+  // 否则球会在身体前方 1m 处凭空发出（视觉拍够不到，像隔空发球）
+  {
+    const H = who==='p' ? hPlayer : hAI;
+    const wantZ = (who==='p' ? 1 : -1) * 1.80;
+    if (H && Math.abs(H.stance[1] - wantZ) > 0.20) H.stance[1] += (wantZ - H.stance[1]) * 0.9;
+  }
   const c = [G.st[0],G.st[1],G.st[2],0,0,0,0,0,0];
   const P = who==='p' ? paramObj() : aiParamObj();
   // ── 选择发球类型：玩家按 serveLock（auto=随机变化），AI 随机 ──
@@ -2618,7 +2625,13 @@ function updateCharacters(dt){
     if (plan && anyLive && G.last !== who){
       // 站位 = 解算好的「让位点」：把击球点放到正手区（持拍侧 +30cm）或反手区（−12cm）
       goalX = clamp((plan.sx !== undefined ? plan.sx : plan.c[0]*0.86) + latOff, -1.12, 1.12);
-      goalZ = clamp(Math.abs(plan.c[2]) + 0.35 + stanceBias(who), 1.42, 3.8);
+      // 身体必须「够得到」击球点：固定退到接触点后方 0.35m，再叠加一个**受限**的退台量。
+      // 旧写法把整个退台(≤1.10m)都加到身后 ⇒ 身体离击球点最远 1.45m，远超
+      // 臂长(0.55m)+前倾(0.55m)+送肩(0.13m)≈1.2m 的有效触及，手臂被拉成 2 倍（橡皮筋）。
+      // 退台的「深」由 findContact 接触点变深 + 相机拉远来体现，身体只在身后留一小段即可。
+      const behind = 0.35 + Math.min(counterLoopRetreat(who), 0.40)
+                          + (who==='p' ? (G.stanceOff||0) : 0);
+      goalZ = clamp(Math.abs(plan.c[2]) + behind, 1.42, 3.8);
       pad.hold = [goalX - latOff, goalZ];     // 锁定本拍站位（不含手动偏移 / 未带方向符号）
     } else if (pad.hold && rel !== null && rel < 1.00){
       // 出手后立刻把站位弹回待机位（0.5m / 5m·s⁻¹ ≈ 0.1s），而随挥还在向前展开
@@ -2699,8 +2712,9 @@ function updateCharacters(dt){
       const pre = vlerp(idle, bs, u*u*(3-2*u));
       pos = tc < HITW ? vlerp(pre, cp.slice(), Math.pow(1 - tc/HITW, 1.8 + 1.7*pwK)) : pre;
     } else if (rel !== null){
-      // 只有真的打到球才从 hitPos 起手；未命中时从当前接触点起手（否则会瞬移到上一拍的旧位置）
-      const hPos = (relFromHit && pad.hitPos && pad.hitPos.length) ? pad.hitPos : cp;
+      // 只有真的打到球才从 hitPos 起手；未命中时从当前视觉位置起手
+      // （用 cp 会与已锁定到物理拍的视觉位置突跳；用 vpos 完全连续）
+      const hPos = (relFromHit && pad.hitPos && pad.hitPos.length) ? pad.hitPos : (pad.vpos || cp);
       const nH  = vnorm(pad.hitN && pad.hitN.length ? pad.hitN : nv);
       const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.30*T.swing)), vmul(R1, -0.34*T.swing*sw));
       ft[1] += 0.28*T.swing;
@@ -2710,8 +2724,30 @@ function updateCharacters(dt){
     } else if (tc !== null){
       pos = cp.slice();                                    // 触球那一两帧：精确落在物理接触点
     } else pos = idle;
+    // ── 触球前 0.30s：视觉拍逐步锁定到物理拍（pad.p）
+    //    物理拍已提前到位等球，视觉拍若只按时间轴走，落点预测误差会让球看似
+    //    在空气旁被弹回（实测击球瞬间视觉-物理偏差中位 0.15m / 最大 1.1m，
+    //    而拍面半径仅 ~0.08m）。lock 随时间轴平滑升到 1，触球帧完全重合。
+    if (tc !== null){
+      const lock = clamp(1 - tc/0.30, 0, 1);
+      const w = lock*lock*(3-2*lock);
+      if (w > 0) pos = vlerp(pos, pad.p, w);
+    }
     // 轻微软跟随（去掉抖动），但触球瞬间必须精确落在物理接触点上
     if (pad.vpos && (tc === null || tc > 0.03)) pos = vlerp(pad.vpos, pos, Math.min(1, dt*22));
+    // ── 位置速率限制（修复换拍抽搐）：新来球到达时，挥拍时间轴从「随挥」瞬间
+    //    跳回「预备」，目标位可能突跳 1.4m；软跟随因子 dt*22 在掉帧时=1（完全不
+    //    起平滑作用）⇒ 球拍整体瞬移。正常挥拍峰值仅 ~4 m/s，这里封顶 9 m/s：
+    //    任何情况下瞬移都变成约 0.15s 的快速收拍，连续且自然。
+    if (pad.vpos){
+      const maxStep = 9.0 * dt;
+      const dx = pos[0]-pad.vpos[0], dy = pos[1]-pad.vpos[1], dz = pos[2]-pad.vpos[2];
+      const L = Math.hypot(dx, dy, dz);
+      if (L > maxStep && L > 1e-6){
+        const s = maxStep / L;
+        pos = [pad.vpos[0]+dx*s, pad.vpos[1]+dy*s, pad.vpos[2]+dz*s];
+      }
+    }
     pad.vpos = pos.slice();
 
     // ── 球拍朝向：法线 + 技术拍头方向（搓球朝前 / 攻球朝外上）+ 甩腕
@@ -3673,7 +3709,12 @@ function updateHuman(P, I, dt){
   let lean = clamp(needXY*0.5, 0, 0.34);
   const toG = vnorm([grip[0]-P.stance[0], 0, grip[2]-P.stance[1]]);
   const hipY = 0.93 - 0.32*I.crouch + Math.sin(performance.now()/1000*1.6)*0.007;  // 含重心微起伏
-  let hip = [P.stance[0]+toG[0]*lean, hipY, P.stance[1]+toG[2]*lean];
+  // 重心转移：引拍转腰时重心压向持拍侧的后脚，触球/随挥时压向前脚。
+  // 缺了这一环，人物就像"钉在原地只摆手"——真实击球感的核心视觉线索。
+  // coil<0（引拍）→ 移向 +R1（后脚）；coil>0（随挥）→ 移向 -R1（前脚）。
+  // 反手转移幅度小一些（真实反手重心变化本就小于正手）。
+  const hipLat = clamp(-I.coil*0.15, -0.16, 0.16) * (I.bh ? 0.6 : 1);
+  let hip = [P.stance[0]+toG[0]*lean + R1[0]*hipLat, hipY, P.stance[1]+toG[2]*lean + R1[2]*hipLat];
 
   const coil = I.coil;
   const Rp = vrotY(R1, coil), Fp = vrotY(F, coil);
@@ -3689,7 +3730,7 @@ function updateHuman(P, I, dt){
     const nl  = Math.min(cap, lean + (d-0.52)*0.9);
     if (nl <= lean + 1e-4) break;
     lean = nl;
-    hip  = [P.stance[0]+toG[0]*lean, hipY, P.stance[1]+toG[2]*lean];
+    hip  = [P.stance[0]+toG[0]*lean + R1[0]*hipLat, hipY, P.stance[1]+toG[2]*lean + R1[2]*hipLat];
   }
   let chest  = chestOf(hip);
   let shBase = vadd(chest, [0, 0.09, 0]);
