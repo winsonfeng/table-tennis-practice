@@ -4060,8 +4060,22 @@ const TT_CLIP  = {};          // 共享动作片段数据（两份模型骨架�
 let   CHAR_READY = false;
 
 /* 末端骨骼在自身局部空间中的"延伸方向"（没有子骨骼时用该方向反旋进局部） */
+/* 踝点下压量（模型局部单位）：把脚踝摆到 rig 踝点时脚底会高出地面约这么多。
+   实测：踝点 y=0.075 → 脚底 y=0.034，故下压 0.034（÷ 缩放 0.917 ≈ 0.037 局部单位） */
+const SOLE_FIX = 0.037;
+/* 脚掌骨（FootL/FootR）相对踝点的下沉量：这批模型的 Foot 骨只带"鞋底"那 45 个顶点，
+   绑定位必须落在「靴底 + 约1.4cm」处；直接摆到踝点会让整层鞋底浮在靴子上方 ⇒ 脚掌像没了 */
+const FOOT_DROP = 0.021;
+/* 末端骨骼在自身局部空间中的"延伸方向"（没有子骨骼时用该方向反旋进局部）。
+   ⚠ 必须按实测填，且注意语义：boneAxis 返回的是「旋转后指向 LEAF_DIR 世界方向」的局部轴。
+     · Fist 的手掌沿局部 +Y 伸出，T-pose 下局部 +Y → 世界 -Y（下垂）⇒ 填 [0,-1,0]
+     · Foot 的鞋底沿局部 -Z 伸出 ⇒ 填 [0,0,-1]
+     · LowerLeg 的小腿沿局部 -Y 伸出 ⇒ 填 [0,-1,0]
+   填错 ⇒ aimBoneAt 把手/脚朝向摆到完全无关的方向（表现就是"手和拍分离"）。 */
 const LEAF_DIR = { LowerLegL:[0,-1,0], LowerLegR:[0,-1,0],
-                   Head:[0,0,1], FistL:[1,0,0], FistR:[-1,0,0] };
+                   Head:[0,0,1],
+                   FistL:[0,-1,0], FistR:[0,-1,0],
+                   FootL:[0,0,-1], FootR:[0,0,-1] };
 const _cA=new THREE.Vector3(),_cB=new THREE.Vector3(),_cC=new THREE.Vector3();
 const _cP=new THREE.Vector3(),_cQ=new THREE.Vector3();
 const _c1=new THREE.Quaternion(),_c2=new THREE.Quaternion(),_c3=new THREE.Quaternion();
@@ -4143,6 +4157,18 @@ async function loadCharLib(){
         }
       }
       src.updateMatrixWorld(true);
+      /* Quaternius 的 PBR 材质带 metallic=1，而主场景没有环境贴图 ⇒ 金属面直接渲染成纯黑
+         （表现正是：皮肤/四肢全黑，只有头发/衣服有色）。统一改成无金属哑光材质。 */
+      src.traverse(o=>{
+        if (!o.isMesh) return;
+        const ms = Array.isArray(o.material)?o.material:[o.material];
+        ms.forEach(m=>{
+          if ('metalness' in m){ m.metalness = 0; m.roughness = 0.92; m.envMapIntensity = 0; }
+          /* 这批模型里 Skin 的 baseColorFactor 是 [0.013,0.013,0.013]（≈#1f1f1f 近黑），
+             四肢/躯干会渲染成一团黑；Face / Hair / 衣服的基色都正常，保留不动。 */
+          if (m.name === 'Skin') m.color.setHex(0xefc7a2);
+        });
+      });
       const B = {}; for (const b of sk.bones) B[b.name] = b;
       // 骨长：在世界空间量（含 __fit 0.591 缩放），运行时再乘容器缩放
       const wd = (a,c)=>{ const p=new THREE.Vector3(),q=new THREE.Vector3();
@@ -4183,10 +4209,16 @@ function attachCharModel(P, idx, ghost, targetH){
   scene.add(ctn);
   if (ghost){
     lib.src.traverse(o=>{ if (!o.isMesh) return;
-      const ms = Array.isArray(o.material)?o.material:[o.material];
-      // 0.30 太淡，己方几乎看不见；0.62 既能看清人物又不挡球
-      o.material = ms.map(m=>{ const c = m.clone();
-        c.transparent = true; c.opacity = 0.62; c.depthWrite = true; return c; });
+      const single = !Array.isArray(o.material);
+      const ms = single ? [o.material] : o.material;
+      // 0.62 太实，己方会挡住球与球拍；0.35 既能看清人物轮廓又完全不碍事
+      // depthWrite=false：己方站在相机与球之间，若写深度会把身后的球/球拍一起挡掉
+      const cs = ms.map(m=>{ const c = m.clone();
+        c.transparent = true; c.opacity = 0.35; c.depthWrite = false; return c; });
+      /* 关键：原来是单材质就必须还回单材质。three.js 的 projectObject 对"材质数组"
+         按 geometry.groups 逐组 push，而这类模型几何体没有 groups ⇒ 一次都不绘制
+         （表现就是己方整个人完全消失）。 */
+      o.material = single ? cs[0] : cs;
     });
   }
   // 火柴人：直接从场景摘除（不能只靠 visible=false —— updateHuman 每帧会 P.torso.visible=true 把它点亮）
@@ -4255,15 +4287,44 @@ function poseCharModel(P, J, I, dt){
   aimBoneAt(B.UpperArmL, A.UpperArmL, _cV[0].set(elbL[0],elbL[1],elbL[2]));
   aimBoneAt(B.LowerArmL, A.LowerArmL, _cV[1].set(J.lHand[0],J.lHand[1],J.lHand[2]));
   // ⑥ 双腿 IK → 脚跟着步法
-  for (let i=0;i<2;i++){
-    const up = i===0 ? B.UpperLegL : B.UpperLegR;
-    const lo = i===0 ? B.LowerLegL : B.LowerLegR;
+  //    踝目标下压 SOLE_FIX：模型脚掌（踝→脚底）比 rig 的踝点高 0.075 薄，不补会整只脚悬空/陷地
+  const ay = -SOLE_FIX*s;
+  _cV[2].set(J.ankle[0][0], J.ankle[0][1]+ay, J.ankle[0][2]);
+  _cV[3].set(J.ankle[1][0], J.ankle[1][1]+ay, J.ankle[1][2]);
+  /* 两条腿 ↔ 两个踝点：按"髋→踝"水平距离总和最小的方案配对。
+     按 L/R 名字硬配会左右互换（模型骨架的左右与 rig 的左右在转身后相反）⇒ 双腿交叉。 */
+  let mL = 0, mR = 1, hipLx = 0, hipLz = 0, hipRx = 0, hipRz = 0;
+  if (B.UpperLegL && B.UpperLegR){
+    B.UpperLegL.getWorldPosition(_cP); hipLx = _cP.x; hipLz = _cP.z;
+    B.UpperLegR.getWorldPosition(_cP); hipRx = _cP.x; hipRz = _cP.z;
+    const d2 = (hx,hz,a)=> (hx-a.x)*(hx-a.x) + (hz-a.z)*(hz-a.z);
+    const s1 = d2(hipLx,hipLz,_cV[2]) + d2(hipRx,hipRz,_cV[3]);
+    const s2 = d2(hipLx,hipLz,_cV[3]) + d2(hipRx,hipRz,_cV[2]);
+    if (s2 < s1){ mL = 1; mR = 0; }
+  }
+  for (let k=0;k<2;k++){
+    const isL = (k === 0);
+    const up = isL ? B.UpperLegL : B.UpperLegR;
+    const lo = isL ? B.LowerLegL : B.LowerLegR;
     if (!up || !lo) continue;
+    const t = _cV[2 + (isL ? mL : mR)];
     up.getWorldPosition(_cP);
     const hipW = [_cP.x, _cP.y, _cP.z];
-    const kn = ik2Reach(hipW, J.ankle[i], M.lib.thigh*s, M.lib.shin*s, J.pollK[i]);
+    const kn = ik2Reach(hipW, [t.x,t.y,t.z], M.lib.thigh*s, M.lib.shin*s, J.pollK[isL ? mL : mR]);
     aimBoneAt(up, A[up.name], _cV[0].set(kn[0],kn[1],kn[2]));
-    aimBoneAt(lo, A[lo.name], _cV[1].set(J.ankle[i][0],J.ankle[i][1],J.ankle[i][2]));
+    aimBoneAt(lo, A[lo.name], _cV[1].set(t.x,t.y,t.z));
+  }
+  /* 脚掌骨骼（FootL/FootR）是挂在根骨下的独立骨骼，不随腿部 IK 走；
+     且它只带"鞋底"那一层顶点，必须落在「踝点 - FOOT_DROP」处（= 靴底上方约1.4cm），
+     否则脚掌会悬在靴子上方或埋进地板。 */
+  if (B.FootL && B.FootR && B.FootL.parent){
+    B.FootL.parent.updateMatrixWorld(true);
+    const dy = -FOOT_DROP*s;
+    const f0 = new THREE.Vector3(_cV[2+mL].x, _cV[2+mL].y + dy, _cV[2+mL].z);
+    const f1 = new THREE.Vector3(_cV[2+mR].x, _cV[2+mR].y + dy, _cV[2+mR].z);
+    B.FootL.position.copy(f0); B.FootL.parent.worldToLocal(B.FootL.position);
+    B.FootR.position.copy(f1); B.FootR.parent.worldToLocal(B.FootR.position);
+    B.FootL.updateWorldMatrix(false,false); B.FootR.updateWorldMatrix(false,false);
   }
   // ⑦ 头：直接沿用 rig 算好的世界朝向
   if (J.headQ && B.Head){
@@ -4590,7 +4651,7 @@ const hAI     = buildHuman(0xf5c9a2, 0x2fa84a, 0x5b3fa8, 0x3a2f2a, true, false, 
 loadCharLib().then(()=>{
   attachCharModel(hPlayer, 0, true,  1.78);   // 玩家：男（半透明）
   attachCharModel(hAI,     1, false, 1.78);   // 对手：女
-  window.__PONG.CHAR = { lib:CHAR_LIB, clips:TT_CLIP, ready:CHAR_READY };
+  window.__PONG.CHAR = { lib:()=>CHAR_LIB, clips:()=>TT_CLIP, ready:()=>CHAR_READY };
 });
 
 /* 挥拍 / 手腕的时间轴°：
@@ -4717,6 +4778,7 @@ UI.s_rest.value = Math.round(G.P.rest*100); UI.s_assist.value = G.P.assist;
 window.__PONG = G;   // 调试句柄
 window.__PONG.padAim = padAim; window.__PONG.padMesh = ()=>pPad;   // 拍面黄环 / 球拍（便于调试）
 window.__PONG.CAM = CAM; window.__PONG.camera = camera;
+window.__PONG.scene = scene; window.__PONG.renderer = renderer; window.__PONG.THREE = THREE;
 window.__PONG.VIS = VIS; window.__PONG.padOf = padStyleOf;
 window.__PONG.TECH = TECH; window.__PONG.strokeTech = strokeTech;
 window.__PONG.techHeadDir = techHeadDir; window.__PONG.setTech = setTech;
@@ -4737,6 +4799,7 @@ window.__PONG.pointTo = pointTo; window.__PONG.syncMatchUI = syncMatchUI;
 window.__PONG.swingBuf = swingBuf; window.__PONG.swingPath = swingPath;
 window.__PONG.swingPred = swingPred; window.__PONG.swingPredArrow = swingPredArrow;
 window.__PONG.CHAR = { lib:()=>CHAR_LIB, clips:()=>TT_CLIP, ready:()=>CHAR_READY };
+window.__PONG.hPlayer = hPlayer; window.__PONG.hAI = hAI;
 /* 调试探针：模型骨架关键点的世界坐标（与 VIS.grip / VIS.wristP 对照可验击球点） */
 window.__PONG.charProbe = ()=>{
   const out = { ready:CHAR_READY, libs:CHAR_LIB.length, clips:Object.keys(TT_CLIP) };
