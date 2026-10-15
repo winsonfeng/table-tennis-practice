@@ -94,6 +94,9 @@
   .kv .n em{font-style:normal;color:#9a8467;font-size:10px;margin-left:2px;font-weight:600}
   .hl{color:#e0450f;font-weight:900} .hl2{color:#0e8fa8;font-weight:900}
   .go{color:#2f9e34;font-weight:900} .ng{color:#e0342a;font-weight:900}
+  .gS{color:#ff7a2f;font-weight:900} .gA{color:#2f9e34;font-weight:900}
+  .gB{color:#0e8fa8;font-weight:900} .gC{color:#9a8467;font-weight:900}
+  .gD{color:#e0342a;font-weight:900}
   .bar{position:relative;height:12px;background:#f7e7ca;border:2px solid var(--ink);border-radius:999px;
     margin:6px 0 4px;overflow:hidden}
   .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;
@@ -167,6 +170,18 @@
   <h3>落点目标 <span id="tgtTxt">中台</span></h3>
   <div class="grid9" id="g9"></div>
   <div class="note">直接在 3D 台面上<b>点击</b>任意位置即可自由指定落点。</div>
+
+  <h3>比赛模式 <span class="tag" id="matchTag">练习</span></h3>
+  <div class="btns">
+    <button id="b_mode">比赛模式：关</button>
+    <button id="b_newmatch" class="hidden">再来一局</button>
+  </div>
+  <div class="kv"><span class="k">比分</span><span class="n hl" id="r_mscore">0 : 0</span></div>
+  <div class="kv"><span class="k">赛况</span><span class="n" id="r_mstat">自由练习</span></div>
+  <div class="kv"><span class="k">本板评分</span><span class="n" id="r_mlast">—</span></div>
+  <div class="kv"><span class="k">平均 / 最佳</span><span class="n" id="r_mavg">— / —</span></div>
+  <div class="kv"><span class="k">S·A 评级</span><span class="n" id="r_msa">0 / 0</span></div>
+  <div class="note"><b>比赛模式</b>（<b>N</b> 键）：11 分制、净胜 2 分、每 2 分换发球。<b>落点自适应</b>——系统按「最可能得分」自动变换进攻落点（深角最难回，胜率高可连续打同一点），也可点击台面临时指定。每板按 <b>力量 / 旋转 / 落点 / 过网</b> 评 <b>S·A·B·C·D</b> 并累计。</div>
 
   <h3>击球参数</h3>
   <div class="btns">
@@ -1671,6 +1686,10 @@ const G = {
   st: new Float64Array(9),
   live: false, phase:'ready',          // ready | play | point
   score:{ p:0, a:0 }, rally:0, server:'p', serveCount:0,
+  mode:'practice',                       // 'practice' 自由练习 | 'match' 比赛（比分制）
+  match:{ target:11, winBy2:true, over:false, winner:'',
+          zoneWin:[0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5], lastZone:-1 }, // 落点自适应：各区历史胜率 + 上次落点区
+  rate:{ last:null, sum:0, n:0, best:0, S:0, A:0 },          // 击球评分累计（本局）
   last:'', bounces:0, needOwn:false,
   ptHits:0,                          // 本分出手次数：发球=1，接发球=2，之后=相持
   stage:'',                          // 阶段：serve | receive | rally
@@ -1810,6 +1829,7 @@ function resetBall(serverSide){
     syncFrzUI();
   }
   G.bounceOK.p = false; G.bounceOK.a = false;
+  if (G.mode === 'match') matchPickTarget();   // 比赛模式：每分自适应选进攻落点（落点不固定）
   autoServeAt = performance.now() + 900;
 }
 
@@ -1945,6 +1965,19 @@ function applyShot(st, who, n, vp){
       sx:  (()=>{ const pl = who==='p' ? G.plan : G.aiPlan; return pl && pl.sx !== undefined ? +pl.sx.toFixed(2) : null; })() });
     if (G.shotLog.length > 40) G.shotLog.shift();
   }
+  // ── 击球评分：玩家这一板出球质量（比赛模式累计统计；结果只在左侧面板显示，不再弹中间文字）
+  if (who === 'p'){
+    const evR = predict(G.st, 2.4, 1, false);
+    const Lr  = evR.landings[0];
+    const rt  = ratePlayerShot(evR, Lr);
+    G.rate.last = rt;
+    if (G.mode === 'match'){
+      G.rate.n++; G.rate.sum += rt.sc; G.rate.best = Math.max(G.rate.best, rt.sc);
+      if (rt.grade === 'S'){ G.rate.S++; }
+      else if (rt.grade === 'A'){ G.rate.A++; }
+    }
+    syncMatchUI();
+  }
   if (who === 'a'){                        // AI 出球 → 玩家开始解算
     setTimeout(()=>computePlan(), 0);
   } else {
@@ -1953,16 +1986,139 @@ function applyShot(st, who, n, vp){
 }
 function startRally(){ G.live = true; G.phase='play'; }
 
+/* ══════════════════════════════════════════════════════════════════
+   比赛模式 · 击球评分 + 自适应落点
+   · 比分制：11 分、净胜 2 分、每 2 分换发球（沿用 pointTo 的 serveCount）
+   · 落点自适应：以「最可能得分」为目标变换落点——候选区基础难度（深角最难回）+
+     各区位历史胜率取期望得分最高者；落点不固定（低胜率强制变换），胜率高可连续打同一点
+   · 击球评分：玩家每板按 力量/旋转/落点精准/落点侵略/过网安全 → 0-100 分 → S/A/B/C/D
+   ══════════════════════════════════════════════════════════════════ */
+function gradeOf(sc){ return sc>=70?'S':sc>=58?'A':sc>=45?'B':sc>=32?'C':'D'; }
+/* 比赛模式候选落点区（对方半台 z<0）：d = 基础难度（越深/越角越难回，期望得分越高） */
+const MATCH_ZONES = [
+  {x:-0.62,z:-1.20,d:1.00}, {x: 0.62,z:-1.20,d:1.00},   // 深两角（最难回）
+  {x: 0.00,z:-1.30,d:0.92},                              // 深中路
+  {x:-0.62,z:-0.52,d:0.82}, {x: 0.62,z:-0.52,d:0.82},   // 近网两角
+  {x:-0.32,z:-0.86,d:0.75}, {x: 0.32,z:-0.86,d:0.75},   // 半角
+  {x: 0.00,z:-0.44,d:0.60},                              // 近网中路
+];
+/* 比赛模式：以最可能得分为目标选落点（落点不固定；胜率高可连续打同一点） */
+function matchPickTarget(){
+  const win = G.match.zoneWin, last = G.match.lastZone;
+  const vals = MATCH_ZONES.map((z,i)=>{
+    const wr = win[i];
+    let v = z.d*0.55 + wr*0.45;                  // 基础难度 + 历史胜率
+    if (i === last && wr < 0.66) v -= 0.22;      // 低胜率则强制变换，避免死磕一点
+    v += (Math.random()-0.5)*0.05;               // 轻微抖动，保证“不固定”
+    return v;
+  });
+  const order = vals.map((v,i)=>({i,v})).sort((a,b)=>b.v-a.v);
+  let pick;
+  const top = order[0], wrTop = win[top.i];
+  if (wrTop >= 0.66 && Math.random() < 0.6){
+    pick = top.i;                                // 高胜率：可连续攻同一点
+  } else {
+    const pool = order.filter(o => o.i !== last).slice(0,3);  // Top3（排除刚打过的）
+    pick = (pool[(Math.random()*pool.length)|0] || top).i;    // 高得分优先 + 落点不固定
+  }
+  G.match.lastZone = pick;
+  const z = MATCH_ZONES[pick];
+  const jx = (Math.random()-0.5)*0.10, jz = (Math.random()-0.5)*0.08;
+  G.target = [clamp(z.x+jx,-0.70,0.70), clamp(z.z+jz,-1.32,-0.16)];
+  syncTarget();
+}
+/* 对玩家这一板出球评分（用实际出球状态 G.st 预测的落点 ev/landings） */
+function ratePlayerShot(ev, L){
+  const st = G.st;
+  const v = Math.hypot(st[3],st[4],st[5]);                 // 出球速度 m/s
+  const w = Math.hypot(st[6],st[7],st[8]);                 // 出球角速度 rad/s
+  const clr = ev.netClear;                                 // 过网余量（null = 没过网）
+  const tgt = (G.plan && G.plan.target) ? G.plan.target : G.target;
+  const sV = clamp(v/15, 0, 1);                            // 力量：15 m/s 满
+  const sW = clamp((w/(2*Math.PI))/80, 0, 1);              // 旋转：80 转/s 满
+  let sP = 0;                                              // 落点精准（相对本拍目标）
+  if (L) sP = 1 - clamp(Math.hypot(L[0]-tgt[0], L[1]-tgt[1])/0.5, 0, 1);
+  let sA = 0;                                              // 落点侵略：贴边线 / 贴底线
+  if (L){
+    const ex = Math.max(0, Math.abs(L[0]) - 0.55)/0.17;
+    const ez = Math.max(0, Math.abs(L[1]) - 0.95)/0.37;
+    sA = clamp(Math.max(ex, ez), 0, 1);
+  }
+  let sC = clr!=null ? clamp(clr/0.15, 0, 1) : 0;          // 过网安全
+  const legal = !!L && !ev.out;
+  let sc = 100*(0.36*sP + 0.22*sV + 0.20*sW + 0.12*sA + 0.10*sC);
+  if (!legal) sc = Math.min(sc, 25);                       // 未落台 → 最高 D
+  return { sc: Math.round(sc), grade: gradeOf(sc), legal,
+           v:+v.toFixed(1), w:+(w/(2*Math.PI)).toFixed(1),
+           clr: clr==null?null:+clr.toFixed(3),
+           land: L ? [+L[0].toFixed(2),+L[1].toFixed(2)] : null };
+}
+function setMatch(on){
+  G.mode = on ? 'match' : 'practice';
+  if (on){
+    G.match.over = false; G.match.winner = '';
+    newMatch();
+    toast('比赛模式开启', '11 分制 · 净胜 2 分 · 落点自适应 · 击球评分');
+  } else {
+    G.match.over = false; G.match.winner = '';
+    toast('比赛模式关闭', '回到自由练习');
+  }
+  syncMatchUI();
+}
+function newMatch(){
+  G.score.p=0; G.score.a=0; G.rally=0; G.server='p'; G.serveCount=0;
+  G.match.over=false; G.match.winner='';
+  G.match.zoneWin=[0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5]; G.match.lastZone=-1;
+  G.rate = { last:null, sum:0, n:0, best:0, S:0, A:0 };
+  resetBall('p'); syncMatchUI();
+  if (G.mode === 'match') toast('新的一局', '11 分制 · 净胜 2 分');
+}
+/* 比分 / 赛况 / 评分的面板刷新（updateHUD 里每帧调用） */
+function syncMatchUI(){
+  const b = $('b_mode');
+  if (b){ b.textContent = G.mode==='match' ? '比赛模式：开' : '比赛模式：关'; b.classList.toggle('on', G.mode==='match'); }
+  const nb = $('b_newmatch'); if (nb) nb.classList.toggle('hidden', !(G.mode==='match' && G.match.over));
+  const t = $('matchTag'); if (t) t.textContent = G.mode==='match' ? (G.match.over ? '本局结束' : '11分制') : '练习';
+  const sc = $('r_mscore'); if (sc) sc.textContent = `${G.score.p} : ${G.score.a}`;
+  const st = $('r_mstat');
+  if (st){
+    if (G.mode!=='match') st.innerHTML = '<span style="color:var(--dim)">自由练习</span>';
+    else if (G.match.over) st.innerHTML = `<span class="${G.match.winner==='p'?'go':'ng'}">${G.match.winner==='p'?'你获胜 🏆':'AI 获胜'}</span>`;
+    else { const lead = G.score.p - G.score.a;
+      st.innerHTML = lead>0?`<span class="go">你 +${lead}</span>`:lead<0?`<span class="ng">落后 ${-lead}</span>`:'<span>平分</span>'; }
+  }
+  const lt = $('r_mlast'); const r = G.rate.last;
+  if (lt) lt.innerHTML = r ? `<span class="g${r.grade}">${r.grade} · ${r.sc}</span>` : '—';
+  const av = $('r_mavg'); if (av) av.textContent = G.rate.n ? `${(G.rate.sum/G.rate.n).toFixed(0)} / ${G.rate.best}` : '— / —';
+  const sa = $('r_msa'); if (sa) sa.innerHTML = `<span class="gS">${G.rate.S}</span> / <span class="gA">${G.rate.A}</span>`;
+}
+
 function pointTo(who, why){
   if (G.phase === 'point') return;
   G.phase = 'point'; G.live = false;
   if (who==='p') G.score.p++; else G.score.a++;
+  if (G.mode === 'match' && G.match.lastZone >= 0){     // 落点自适应：用本分结果更新该区位胜率
+    const zi = G.match.lastZone, wr = G.match.zoneWin[zi];
+    G.match.zoneWin[zi] = clamp(wr + (who==='p' ? 0.16 : -0.13), 0.05, 0.95);
+  }
   G.serveCount++;
   if (!G.pointLog) G.pointLog = [];
   G.pointLog.push({ who, why, pt:G.ptHits, n:(G.shotLog||[]).length,
                     shots:(G.shotLog||[]).slice(-4) });
   if (G.pointLog.length > 20) G.pointLog.shift();
   if (G.serveCount >= 2){ G.serveCount = 0; G.server = G.server==='p' ? 'a' : 'p'; }
+  // 比赛模式：本局结束判定（达标 + 净胜 2 分）
+  if (G.mode === 'match' && !G.match.over){
+    const p = G.score.p, a = G.score.a, tg = G.match.target;
+    const winBy2 = G.match.winBy2 ? 2 : 1;
+    if ((p >= tg || a >= tg) && Math.abs(p - a) >= winBy2){
+      G.match.over = true; G.match.winner = who;
+      G.letRun = 0; autoServeAt = 0;
+      syncMatchUI();
+      toast(who==='p' ? '🏆 你赢了！' : 'AI 获胜', `最终比分 ${p} : ${a} · 点「再来一局」继续`);
+      return;                                        // 停在 'point'，等「再来一局」
+    }
+  }
   toast((who==='p'?'你':'AI') + ' 得分', why);
   G.letRun = 0;
   autoServeAt = performance.now() + 2400;              // 定格模式自动发球（若开启）
@@ -2269,7 +2425,8 @@ addEventListener('keydown', e=>{
   if (e.code === 'Space'){ e.preventDefault();
     if (G.frz && G.frz.active) frzApply();            // 定格中：空格 = 出球继续
     else if (G.phase==='ready') doServe(); }
-  if (e.key === 'r' || e.key === 'R'){ G.score.p=0; G.score.a=0; G.rally=0; G.server='p'; G.serveCount=0; resetBall('p'); }
+  if (e.key === 'r' || e.key === 'R'){ newMatch(); }
+  if (e.key === 'n' || e.key === 'N'){ setMatch(G.mode !== 'match'); }
   if (e.key === 'p' || e.key === 'P'){ G.paused = !G.paused; toast(G.paused?'已暂停':'继续',''); }
   if (e.key === 't' || e.key === 'T'){ G.slow = !G.slow; toast(G.slow?'慢放 0.25x':'正常速度',''); }
   if (e.key === 'f' || e.key === 'F'){ setCam(G.camMode+1); }
@@ -3078,8 +3235,9 @@ function updateVisual(dt){
     dirArrow.visible = false; ringLand.visible = false;
   }
 
-  // 落点目标环
+  // 落点目标环（比赛模式隐藏：落点不固定，不做单一目标指示）
   ringTarget.position.set(G.target[0], T.top+0.0045, G.target[1]);
+  ringTarget.visible = (G.mode !== 'match');
 
   // 受力矢量
   const showF = UI.k_force.checked && G.live;
@@ -3228,7 +3386,9 @@ function bind(){
   }
   UI.k_comp.addEventListener('change', ()=>{ G.comp = UI.k_comp.checked; planDirty = true; });
   $('b_serve').onclick = ()=>{ if (G.phase==='ready') doServe(); };
-  $('b_reset').onclick = ()=>{ G.score.p=0; G.score.a=0; G.rally=0; G.server='p'; G.serveCount=0; resetBall('p'); };
+  $('b_reset').onclick = ()=>{ newMatch(); };
+  $('b_mode').onclick   = ()=>{ setMatch(G.mode !== 'match'); };
+  $('b_newmatch').onclick = ()=>{ newMatch(); };
   $('b_pause').onclick = ()=>{ G.paused=!G.paused; toast(G.paused?'已暂停':'继续',''); };
   $('b_slow').onclick  = ()=>{ G.slow=!G.slow; toast(G.slow?'慢放 0.25x':'正常速度',''); };
   $('b_cam').onclick   = ()=>{ setCam(G.camMode+1); };
@@ -3312,6 +3472,7 @@ function bind(){
   syncFrzUI();
   setGrip(playerGrip);          // 初始化拍型与拍面可视化尺寸
   setAuto(G.auto, true);        // 初始化自动/手动模式 UI
+  syncMatchUI();                // 初始化比赛模式面板
 }
 function syncLabels(){
   $('v_power').textContent = G.P.power + '%';
@@ -3516,6 +3677,7 @@ function updateHUD(){
 
   $('sp').textContent = G.score.p; $('sa').textContent = G.score.a;
   $('rv').innerHTML = `回合 <b>${G.rally}</b>`;
+  syncMatchUI();
 
   // 时机条
   if (p && G.live && G.last !== 'p'){
@@ -4148,9 +4310,12 @@ function loop(now){
   if (G.aiPlan && G.aiPlan.born) G.aiPlan.t = Math.max(0, G.aiPlan.t0 - (performance.now()-G.aiPlan.born)/1000);
   if (G.aiPlan && G.aiPlan.born) G.aiPlan.t = Math.max(0, G.aiPlan.t0 - (performance.now()-G.aiPlan.born)/1000);
 
-  // 定格模式下：回合结束后自动发下一球（连续练习）
-  if (G.frz.on && !G.frz.active && G.phase === 'ready' && autoServeAt && now >= autoServeAt
-      && UI.k_autoserve && UI.k_autoserve.checked){ autoServeAt = 0; doServe(); }
+  // 自动发下一球：定格连续练习（勾选时）/ 比赛模式（进行中，无需定格）
+  const matchAuto = (G.mode==='match' && !G.match.over);
+  const canAuto = (G.frz.on && UI.k_autoserve && UI.k_autoserve.checked) || matchAuto;
+  if (canAuto && !G.frz.active && G.phase === 'ready' && autoServeAt && now >= autoServeAt){
+    autoServeAt = 0; doServe();
+  }
 
   if (!(G.frz && G.frz.active)){ aiThink(dt); physics(dt); }
   updateVisual(dt);
@@ -4211,6 +4376,9 @@ window.__PONG.faceAdjust = faceAdjust; window.__PONG.techOpt = techOpt;
 window.__PONG.recvTech = recvTech; window.__PONG.stageTech = stageTech;
 window.__PONG.aiParamObj = aiParamObj; window.__PONG.predict = predict;
 window.__PONG.aiPredictHit = aiPredictHit; window.__PONG.incomingTop = incomingTop;
+window.__PONG.setMatch = setMatch; window.__PONG.newMatch = newMatch;
+window.__PONG.ratePlayerShot = ratePlayerShot; window.__PONG.matchPickTarget = matchPickTarget;
+window.__PONG.pointTo = pointTo; window.__PONG.syncMatchUI = syncMatchUI;
 requestAnimationFrame(loop);
 </script>
 </body>
