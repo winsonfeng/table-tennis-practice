@@ -1691,7 +1691,8 @@ const frzLine  = mkLine(0xff9d3c, 900, false, 0.95);
 const swingPath = mkLine(0x6ee7ff, 130, false, 0.95);   // 实际挥拍路径（青）
 const swingPred = mkLine(0xa3ff8f, 130, true, 0.92);    // 随挥预测（虚线，绿）
 const swingPredArrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,-1), new THREE.Vector3(), 0.12, 0xa3ff8f, 0.030, 0.018);
-scene.add(spinAxis, spinRing, spinTip, faceDisc, normArrow, vertRef, slipArrow, swingPath, swingPred, swingPredArrow);
+// 注意：mkLine 内部已 scene.add(line)，这里不能再 add 它的包装对象（会得到 Object3D.add 报错）
+scene.add(spinTip, faceDisc, normArrow, vertRef, slipArrow, swingPredArrow);
 [spinAxis, spinRing, spinTip, faceDisc, normArrow, vertRef, slipArrow].forEach(o=>{ o.visible = false; });
 frzLine.visible = swingPath.visible = swingPred.visible = swingPredArrow.visible = false;
 /* 受力矢量 */
@@ -3184,10 +3185,14 @@ function updateCharacters(dt){
 
     // ── 骨架
     H.root.visible = show && who !== hideWho && !(G.frz && G.frz.active && who === 'p');
+    // 模型容器与火柴人同步显隐（定格·拍面微距时要藏掉整个人）
+    if (H.mdl) H.mdl.ctn.visible = H.root.visible;
     const anchor = updateHuman(H, {
       facing:F, stance:[goalX, goalZ], speed: 2.4 + (plan?2.6:0),
       pos, n:nv, crouch, coil: charCoil[who], look: lookTarget,
       style: styleI, pose, headDir, bh, sw, who, tech: techKey,
+      // 挥拍时序 → 动作片段的相位（击球瞬间对齐片段内 CLIP_CONTACT）
+      tc, rel, tc0: pad.tc0,
       faceDown: T.faceDown || 0,                  // 视觉压拍量，透传给 updateHuman 让握把同步下压
       // 必须与上面 paddleQuat 用同一个 gripRoll，否则握把/拍柄与拍面错位 ⇒ 手没握在拍柄上
       extraRoll: gripRoll,                              // 转腰 + 挥拍阶段 → 拍柄朝向跟着转
@@ -4029,6 +4034,225 @@ function capEmblemTex(letter, bg){
   return t;
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   人物模型：Quaternius GLB（23 骨）+ 乒乓球动作片段
+   ──────────────────────────────────────────────────────────────────
+   驱动分工（"混合驱动"，用户选定）：
+     · 动作片段 → 髋 / 躯干 / 双肩 的旋转：负责转腰蓄力、重心转移的"真实感"
+     · 物理 rig → 持拍手臂、双腿、头：保证击球点与拍面精确
+   躯干一动肩关节跟着动，手臂 IK 再追物理目标 ⇒ 自然形成"腰腿带手臂"。
+   ══════════════════════════════════════════════════════════════════ */
+const CHAR_FILES = ['./models/quaternius-soldier-tt.glb',      // 玩家：男（自带两段乒乓球片段）
+                    './models/quaternius-casual-female.glb'];  // 对手：女
+/* 片段内"击球瞬间"的时间点（由手部轨迹的峰值定出） */
+const CLIP_CONTACT = { Forehand_Loop:0.75, Penhold_Backhand_Loop:0.72 };
+/* 片段内"待机准备"的时间点 */
+const CLIP_IDLE    = { Forehand_Loop:0.20, Penhold_Backhand_Loop:0.18 };
+/* 片段只驱动这几根骨骼：手臂留给物理 IK，否则击球点会被片段带偏 */
+const CLIP_BONES   = ['Hips', 'Torso', 'ShoulderL', 'ShoulderR'];
+/* 正/反手 → 片段名 */
+const CLIP_OF      = { loop:'Forehand_Loop', lob:'Forehand_Loop', drive:'Forehand_Loop',
+                       smash:'Forehand_Loop', flick:'Forehand_Loop',
+                       twist:'Penhold_Backhand_Loop', push:'Penhold_Backhand_Loop',
+                       chop:'Penhold_Backhand_Loop', block:'Penhold_Backhand_Loop' };
+const CHAR_LIB = [];          // 加载好的角色资源
+const TT_CLIP  = {};          // 共享动作片段数据（两份模型骨架相同，可共用）
+let   CHAR_READY = false;
+
+/* 末端骨骼在自身局部空间中的"延伸方向"（没有子骨骼时用该方向反旋进局部） */
+const LEAF_DIR = { LowerLegL:[0,-1,0], LowerLegR:[0,-1,0],
+                   Head:[0,0,1], FistL:[1,0,0], FistR:[-1,0,0] };
+const _cA=new THREE.Vector3(),_cB=new THREE.Vector3(),_cC=new THREE.Vector3();
+const _cP=new THREE.Vector3(),_cQ=new THREE.Vector3();
+const _c1=new THREE.Quaternion(),_c2=new THREE.Quaternion(),_c3=new THREE.Quaternion();
+const _cV=[new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()];
+
+function boneAxis(b){
+  const kid = b.children.find(c => c.isBone);
+  if (kid){ const v = new THREE.Vector3().copy(kid.position);
+            if (v.lengthSq() > 1e-12) return v.normalize(); }
+  const d = LEAF_DIR[b.name] || [0,1,0];
+  b.getWorldQuaternion(_c3); _c3.invert();
+  return new THREE.Vector3(d[0],d[1],d[2]).applyQuaternion(_c3).normalize();
+}
+/* 让骨骼 b 的"延伸轴"指向世界点 tgt：只改 b 的旋转，保持自身扭转（不产生额外 roll） */
+function aimBoneAt(b, axis, tgt){
+  if (!b) return;
+  b.getWorldPosition(_cP);
+  _cA.copy(tgt).sub(_cP);
+  const L = _cA.length(); if (L < 1e-6) return;
+  _cA.multiplyScalar(1/L);
+  b.parent.getWorldQuaternion(_c1); _c2.copy(_c1).invert();
+  _cB.copy(_cA).applyQuaternion(_c2);            // 目标方向 → 父空间
+  _cC.copy(axis).applyQuaternion(b.quaternion);  // 当前方向 → 父空间
+  _c1.setFromUnitVectors(_cC, _cB);
+  b.quaternion.premultiply(_c1);
+  b.updateWorldMatrix(false, false);
+}
+/* 目标够不到时把目标拉回可及范围，避免骨段被"拉长" */
+function ik2Reach(root, target, l1, l2, poll){
+  const d = vsub(target, root), raw = vlen(d);
+  const maxL = (l1+l2)*0.994;
+  let t = target;
+  if (raw > maxL && raw > 1e-6) t = vadd(root, vmul(vmul(d, 1/raw), maxL));
+  return ik2(root, t, l1, l2, poll);
+}
+/* 四元数轨道采样（关键帧只有 4 个，用 smoothstep 插值避免机械感） */
+function sampleQuat(times, vals, t, out){
+  const n = times.length;
+  if (t <= times[0])   { out.fromArray(vals, 0); return out; }
+  if (t >= times[n-1]) { out.fromArray(vals, (n-1)*4); return out; }
+  let i = 0; while (i < n-2 && times[i+1] < t) i++;
+  const t0 = times[i], t1 = times[i+1];
+  const u = (t1 > t0) ? (t - t0)/(t1 - t0) : 0;
+  const e = u*u*(3-2*u);
+  _c1.fromArray(vals, i*4); _c2.fromArray(vals, (i+1)*4);
+  out.copy(_c1).slerp(_c2, e);
+  return out;
+}
+
+async function loadCharLib(){
+  let GL = null;
+  try { const m = await import('./vendor/GLTFLoader.js'); GL = m.GLTFLoader; } catch(e){}
+  if (!GL){ CHAR_READY = true; return; }
+  const loader = new GL();
+  for (const url of CHAR_FILES){
+    try{
+      const g    = await loader.loadAsync(url);
+      const src  = g.scene;
+      let sk = null;
+      src.traverse(o=>{ if (o.isSkinnedMesh && !sk) sk = o.skeleton; });
+      if (!sk) continue;
+      src.updateMatrixWorld(true);
+      const B = {}; for (const b of sk.bones) B[b.name] = b;
+      // 骨长：在世界空间量（含 __fit 0.591 缩放），运行时再乘容器缩放
+      const wd = (a,c)=>{ const p=new THREE.Vector3(),q=new THREE.Vector3();
+                          a.getWorldPosition(p); c.getWorldPosition(q); return p.distanceTo(q); };
+      const A = {}; for (const n in B) A[n] = boneAxis(B[n]);
+      // 原始局部（每帧复位用）
+      const REST = sk.bones.map(b=>({b, p:b.position.clone(), q:b.quaternion.clone(), s:b.scale.clone()}));
+      // 自然站高（原始姿势包围盒）
+      let mn=new THREE.Vector3(1e9,1e9,1e9), mx=new THREE.Vector3(-1e9,-1e9,-1e9), tv=new THREE.Vector3();
+      src.traverse(o=>{ if(!o.isSkinnedMesh) return; o.skeleton.update();
+        const pos=o.geometry.attributes.position;
+        for(let i=0;i<pos.count;i++){ tv.fromBufferAttribute(pos,i); o.applyBoneTransform(i,tv);
+                                      tv.applyMatrix4(o.matrixWorld); mn.min(tv); mx.max(tv); } });
+      // 片段数据（两份模型骨架一致，抽出来共享给双方）
+      for (const c of g.animations){
+        if (CLIP_CONTACT[c.name] === undefined || TT_CLIP[c.name]) continue;
+        TT_CLIP[c.name] = { dur:c.duration, trk:c.tracks
+          .filter(t => CLIP_BONES.includes(t.name.split('.')[0]))
+          .map(t => ({ bone:t.name.split('.')[0], times:Array.from(t.times), vals:Array.from(t.values) })) };
+      }
+      CHAR_LIB.push({ src, sk, B, A, REST, h: mx.y-mn.y,
+        arm: wd(B.UpperArmR, B.LowerArmR), fore: wd(B.LowerArmR, B.FistR),
+        thigh: wd(B.UpperLegR, B.LowerLegR), shin: 0 });   // 小腿末端无子骨骼，下面按大腿等长补
+    } catch(e){ console.warn('[char] 模型加载失败', url, e); }
+  }
+  // 小腿末端没有子骨骼，按 T-pose 实测小腿长 = 与大腿等长
+  for (const L of CHAR_LIB) if (!L.shin) L.shin = L.thigh;
+  CHAR_READY = true;
+}
+
+/* 把一个模型实例挂到人物上 */
+function attachCharModel(P, idx, ghost, targetH){
+  const lib = CHAR_LIB[idx]; if (!lib || P.mdl) return;
+  const ctn = new THREE.Group();
+  const s   = targetH / (lib.h || 1.84);
+  ctn.scale.setScalar(s);
+  ctn.add(lib.src);
+  scene.add(ctn);
+  if (ghost){
+    lib.src.traverse(o=>{ if (!o.isMesh) return;
+      const ms = Array.isArray(o.material)?o.material:[o.material];
+      o.material = ms.map(m=>{ const c = m.clone();
+        c.transparent = true; c.opacity = 0.30; c.depthWrite = true; return c; });
+    });
+  }
+  // 火柴人：直接从场景摘除（不能只靠 visible=false —— updateHuman 每帧会 P.torso.visible=true 把它点亮）
+  P.stickParts.forEach(o=>{ if (o.parent) o.parent.remove(o); });
+  P.mdl = { ctn, s, B:lib.B, A:lib.A, REST:lib.REST, lib,
+            clipW:0, clipT:0, clipName:null };
+}
+
+/* 每帧：把 rig 算出的关节位置 + 动作片段，摆到模型骨架上 */
+function poseCharModel(P, J, I, dt){
+  const M = P.mdl; if (!M) return;
+  const B = M.B, A = M.A, s = M.s;
+  // ① 复位到原始局部姿态
+  for (const r of M.REST){ r.b.position.copy(r.p); r.b.quaternion.copy(r.q); r.b.scale.copy(r.s); }
+  // ② 容器：站位 / 朝向 / 缩放（模型自身 +Z 为正面）
+  //    下蹲：rig 的屈膝量直接压低容器 —— 模型髋高只由容器决定，
+  //    不压的话低球的深蹲在模型身上完全看不出来（腿长固定，膝弯不变）。
+  //    重心前压：跟着 rig 的髋部前移（打 0.55 折，否则腿够不到会被拉长）
+  M.ctn.position.set(
+    I.stance[0] + (J.hip[0]-I.stance[0])*0.55, -0.13*(I.crouch||0),
+    I.stance[1] + (J.hip[2]-I.stance[1])*0.55);
+  M.ctn.rotation.set(0, Math.atan2(I.facing[0], I.facing[2]), 0);
+  M.ctn.updateMatrixWorld(true);
+  // ③ 躯干：先按 rig 的前倾 / 转腰摆好（待机时由它独立支撑，避免脊背僵住）
+  if (B.Hips && B.Abdomen && B.Torso){
+    aimBoneAt(B.Hips,    A.Hips,    _cV[0].set(J.chest[0],J.chest[1],J.chest[2]));
+    aimBoneAt(B.Abdomen, A.Abdomen, _cV[0].set(J.chest[0],J.chest[1],J.chest[2]));
+    aimBoneAt(B.Torso,   A.Torso,   _cV[0].set(J.head[0], J.head[1],  J.head[2]));
+  }
+  // ④ 动作片段：按权重混入髋 / 躯干 / 双肩（击球瞬间权重最高 = 最真实的转腰蓄力）
+  const live = (I.tc !== null || I.rel !== null);
+  const cn = I.bh ? 'Penhold_Backhand_Loop' : (CLIP_OF[I.tech || 'drive'] || 'Forehand_Loop');
+  M.clipName = cn;
+  const CD = CLIP_CONTACT[cn] || 0.75, DUR = (TT_CLIP[cn] && TT_CLIP[cn].dur) || 1.2;
+  let t;
+  if (I.tc !== null && I.tc > 0){
+    const back = clamp((I.tc0||0.55)*1.15, 0.20, 0.75);      // 引拍在片段内占用的时长
+    t = clamp(CD * (1 - I.tc/back), 0, CD);
+  } else if (I.rel !== null){
+    t = Math.min(CD + I.rel, DUR - 0.01);                     // 随挥走到片段尾即停
+  } else {
+    t = CLIP_IDLE[cn] || 0.20;
+  }
+  M.clipT = ((t % DUR) + DUR) % DUR;
+  M.clipW += ((live ? 1 : 0) - M.clipW) * Math.min(1, dt*6);
+  if (M.clipW > 0.004 && TT_CLIP[cn]){
+    for (const tr of TT_CLIP[cn].trk){
+      const b = B[tr.bone]; if (!b) continue;
+      sampleQuat(tr.times, tr.vals, M.clipT, _c3);
+      b.quaternion.slerp(_c3, M.clipW);     // 从 rig 姿态 → 片段姿态
+    }
+  }
+  // 躯干定下来之后肩关节位置才确定 → 手臂 IK 必须放在 ⑤ 之后
+  M.ctn.updateMatrixWorld(true);
+  // ④ 物理：持拍手臂 IK（保证拍面/击球点精确）
+  B.UpperArmR.getWorldPosition(_cP);
+  const shW = [_cP.x, _cP.y, _cP.z];
+  const elb = ik2Reach(shW, J.wrist, M.lib.arm*s, M.lib.fore*s, J.pollA);
+  aimBoneAt(B.UpperArmR, A.UpperArmR, _cV[0].set(elb[0],elb[1],elb[2]));
+  aimBoneAt(B.LowerArmR, A.LowerArmR, _cV[1].set(J.wrist[0],J.wrist[1],J.wrist[2]));
+  aimBoneAt(B.FistR,     A.FistR,     _cV[2].set(J.grip[0],J.grip[1],J.grip[2]));
+  // ⑤ 非持拍手臂（平衡臂）
+  B.UpperArmL.getWorldPosition(_cP);
+  const shLw = [_cP.x, _cP.y, _cP.z];
+  const elbL = ik2Reach(shLw, J.lHand, M.lib.arm*s, M.lib.fore*s, J.pollL);
+  aimBoneAt(B.UpperArmL, A.UpperArmL, _cV[0].set(elbL[0],elbL[1],elbL[2]));
+  aimBoneAt(B.LowerArmL, A.LowerArmL, _cV[1].set(J.lHand[0],J.lHand[1],J.lHand[2]));
+  // ⑥ 双腿 IK → 脚跟着步法
+  for (let i=0;i<2;i++){
+    const up = i===0 ? B.UpperLegL : B.UpperLegR;
+    const lo = i===0 ? B.LowerLegL : B.LowerLegR;
+    if (!up || !lo) continue;
+    up.getWorldPosition(_cP);
+    const hipW = [_cP.x, _cP.y, _cP.z];
+    const kn = ik2Reach(hipW, J.ankle[i], M.lib.thigh*s, M.lib.shin*s, J.pollK[i]);
+    aimBoneAt(up, A[up.name], _cV[0].set(kn[0],kn[1],kn[2]));
+    aimBoneAt(lo, A[lo.name], _cV[1].set(J.ankle[i][0],J.ankle[i][1],J.ankle[i][2]));
+  }
+  // ⑦ 头：直接沿用 rig 算好的世界朝向
+  if (J.headQ && B.Head){
+    B.Head.parent.getWorldQuaternion(_c1); _c1.invert();
+    B.Head.quaternion.copy(_c1).multiply(J.headQ);
+    B.Head.updateWorldMatrix(false, false);
+  }
+}
+
 /* Q 版卡通人物（马里奥网球风）：大头 + 圆润色块 + 五官 + 白手套 + 圆头鞋 + 描边。
    ghost=true 时己方整体半透明（便于看清球与球拍），但持拍手（手套）保持不透明。 */
 function buildHuman(skin, shirt, shorts, shoe, rightHanded, ghost, letter, startZ){
@@ -4144,6 +4368,13 @@ function buildHuman(skin, shirt, shorts, shoe, rightHanded, ghost, letter, start
   const z0 = (startZ === undefined ? 1.9 : startZ);
   P.stance = [0, z0];
   P.feet = [ {p:[ 0.16,0, z0], move:null}, {p:[-0.16,0, z0], move:null} ];
+  // 火柴人各部件：模型加载完成后整体隐藏
+  P.stickParts = [P.hips, P.torso, P.head, P.neck,
+    P.armU[0],P.armU[1], P.armF[0],P.armF[1], P.hand[0],P.hand[1],
+    P.legU[0],P.legU[1], P.legF[0],P.legF[1],
+    P.jSh[0],P.jSh[1], P.jEl[0],P.jEl[1], P.jKn[0],P.jKn[1],
+    P.glove[0],P.glove[1], P.foot[0],P.foot[1]];
+  P.mdl = null;
   return P;
 }
 
@@ -4289,11 +4520,13 @@ function updateHuman(P, I, dt){
   P.jEl[li].position.set(elbowL[0],elbowL[1],elbowL[2]);
 
   // 腿：髋 → 踝，二骨 IK，膝朝前
+  const ankleLst = [], pollKlst = [];
   for (let i=0;i<2;i++){
     const hipJ = vadd(hip, vmul(R1, i===0 ? 0.115 : -0.115));
     const f = P.feet[i];
     const ankle = [f.p[0], Math.max(0.075, f.p[1]+0.075), f.p[2]];
     const pollK = vnorm(vadd(F, vmul(R1, i===0 ? 0.30 : -0.30)));
+    ankleLst.push(ankle); pollKlst.push(pollK);
     const knee = ik2(hipJ, ankle, 0.44, 0.40, pollK);
     setBone(P.legU[i], hipJ, knee);
     setBone(P.legF[i], knee, ankle);
@@ -4320,13 +4553,25 @@ function updateHuman(P, I, dt){
   P.glove[li].position.set(lHand[0],lHand[1],lHand[2]);
   _b1.set(lHand[0]-elbowL[0], lHand[1]-elbowL[1], lHand[2]-elbowL[2]);
   if (_b1.lengthSq() > 1e-8) P.glove[li].quaternion.setFromUnitVectors(VpZ, _b1.normalize());
-  return { hip:hipMid, head:headP, shR, elbow, wrist, grip };
+
+  const out = { hip:hipMid, head:headP, chest, shR, elbow, wrist, grip,
+                shL, elbowL, lHand, ankle:ankleLst, pollK:pollKlst,
+                pollA:pollA, pollL, headQ:P.head.quaternion };
+  // 人物模型：片段驱动躯干 + 物理 IK 驱动四肢
+  if (P.mdl) poseCharModel(P, out, I, dt);
+  return out;
 }
 
 /* 马里奥网球配色：己方=红衣蓝裤（马里奥）· 对手=绿衣紫裤（路易吉）
    己方人物半透明（ghost），持拍手与球拍不透明 —— 便于看清球与击球动作 */
 const hPlayer = buildHuman(0xf5c9a2, 0xe23b3b, 0x2f5fd0, 0x3a2f2a, true, true,  '你',  1.9);
 const hAI     = buildHuman(0xf5c9a2, 0x2fa84a, 0x5b3fa8, 0x3a2f2a, true, false, 'AI', -1.9);
+/* 异步换上 Quaternius 人物模型 + 乒乓球动作片段（加载失败则维持火柴人） */
+loadCharLib().then(()=>{
+  attachCharModel(hPlayer, 0, true,  1.78);   // 玩家：男（半透明）
+  attachCharModel(hAI,     1, false, 1.78);   // 对手：女
+  window.__PONG.CHAR = { lib:CHAR_LIB, clips:TT_CLIP, ready:CHAR_READY };
+});
 
 /* 挥拍 / 手腕的时间轴°：
    tc = 距击球的剩余时间，rel = 击球后经过的时间 */
@@ -4471,6 +4716,29 @@ window.__PONG.ratePlayerShot = ratePlayerShot; window.__PONG.matchPickTarget = m
 window.__PONG.pointTo = pointTo; window.__PONG.syncMatchUI = syncMatchUI;
 window.__PONG.swingBuf = swingBuf; window.__PONG.swingPath = swingPath;
 window.__PONG.swingPred = swingPred; window.__PONG.swingPredArrow = swingPredArrow;
+window.__PONG.CHAR = { lib:()=>CHAR_LIB, clips:()=>TT_CLIP, ready:()=>CHAR_READY };
+/* 调试探针：模型骨架关键点的世界坐标（与 VIS.grip / VIS.wristP 对照可验击球点） */
+window.__PONG.charProbe = ()=>{
+  const out = { ready:CHAR_READY, libs:CHAR_LIB.length, clips:Object.keys(TT_CLIP) };
+  for (const [tag, H] of [['p', hPlayer], ['a', hAI]]){
+    const M = H.mdl; if (!M){ out[tag] = null; continue; }
+    const v = new THREE.Vector3();
+    const gp = n => { const b = M.B[n]; if (!b) return null;
+                      b.getWorldPosition(v); return [+v.x.toFixed(3),+v.y.toFixed(3),+v.z.toFixed(3)]; };
+    const c = M.ctn;
+    let vis = 0, mesh = 0;
+    M.lib.src.traverse(o=>{ if (o.isSkinnedMesh || o.isMesh){ mesh++; if (o.visible) vis++; } });
+    out[tag] = { scale:+M.s.toFixed(3), ctn:[+c.position.x.toFixed(3),+c.position.z.toFixed(3)],
+      inScene: c.parent !== null, ctnVis: c.visible, mesh:mesh, meshVis:vis,
+      stickLeft: H.stickParts.filter(o=>o.parent !== null).length,
+      fistR:gp('FistR'), lowerArmR:gp('LowerArmR'), upperArmR:gp('UpperArmR'),
+      lowerLegL:gp('LowerLegL'), lowerLegR:gp('LowerLegR'), upperLegR:gp('UpperLegR'),
+      head:gp('Head'), clipW:+M.clipW.toFixed(3), clipT:+M.clipT.toFixed(3), clipName:M.clipName,
+      arm:[+M.lib.arm.toFixed(3),+M.lib.fore.toFixed(3)],
+      leg:[+M.lib.thigh.toFixed(3),+M.lib.shin.toFixed(3)] };
+  }
+  return out;
+};
 requestAnimationFrame(loop);
 </script>
 </body>
