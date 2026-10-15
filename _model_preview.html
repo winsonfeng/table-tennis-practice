@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>GLB 模型预览</title>
+<style>body{margin:0;background:#1a1d21;overflow:hidden}canvas{display:block}
+#hud{position:fixed;left:12px;top:10px;color:#8be9fd;font:12px/1.55 ui-monospace,Menlo,monospace;
+     background:rgba(0,0,0,.62);padding:8px 12px;border-radius:6px;white-space:pre}</style></head>
+<body><div id="hud">…</div>
+<script type="module">
+const hud = document.getElementById('hud');
+const log = m => { hud.textContent = m; };
+let THREE = null, GLTFLoader = null;
+try {
+  THREE = await import('./vendor/three.module.js');
+  const g = await import('./vendor/GLTFLoader.js');
+  GLTFLoader = g.GLTFLoader;
+} catch (e) { log('IMPORT ERROR: ' + (e && e.message)); throw e; }
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1d21);
+const camera = new THREE.PerspectiveCamera(38, innerWidth/innerHeight, 0.01, 100);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.6));
+const dl = new THREE.DirectionalLight(0xffffff, 1.5); dl.position.set(3,5,4); scene.add(dl);
+const dl2 = new THREE.DirectionalLight(0x99ccff, 0.55); dl2.position.set(-4,2,-3); scene.add(dl2);
+scene.add(new THREE.GridHelper(4, 16, 0x445566, 0x2b3540));
+scene.add(new THREE.AxesHelper(0.6));
+
+const QS = new URLSearchParams(location.search);
+const which = QS.get('m') || 'female';
+const FILE = which === 'male' ? 'quaternius-soldier-male.glb' : 'quaternius-casual-female.glb';
+
+let root = null, bones = {}, skMeshes = [];
+new GLTFLoader().load('./models/' + FILE, g => {
+  root = g.scene;
+  scene.add(root);
+  root.updateMatrixWorld(true);
+
+  const wp = new THREE.Vector3();
+  root.traverse(o => {
+    if (o.isBone) bones[o.name] = o;
+    if (o.isSkinnedMesh) skMeshes.push(o);
+  });
+  const pick = ['Hips','Abdomen','Torso','Neck','Head','ShoulderL','UpperArmL','LowerArmL','FistL',
+                'ShoulderR','UpperArmR','LowerArmR','FistR','UpperLegL','LowerLegL','UpperLegR',
+                'LowerLegR','FootL','FootR'];
+  let txt = FILE + '\nthree r' + THREE.REVISION + '  bones=' + Object.keys(bones).length +
+            ' skinnedMesh=' + skMeshes.length + ' anims=' + (g.animations||[]).length + '\n';
+  txt += '--- 骨骼世界坐标 (x,y,z) ---\n';
+  for (const n of pick){
+    if (!bones[n]) { txt += '  ' + n + ' MISSING\n'; continue; }
+    bones[n].getWorldPosition(wp);
+    txt += '  ' + n.padEnd(11) + wp.toArray().map(v=>v.toFixed(3).padStart(7)).join(' ') + '\n';
+  }
+  // 网格世界 AABB（bind 姿态）
+  for (const m of skMeshes){
+    m.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(m, true);
+    txt += '--- SkinnedMesh 世界AABB ---\n  min ' + box.min.toArray().map(v=>v.toFixed(2)).join(',') +
+           '  max ' + box.max.toArray().map(v=>v.toFixed(2)).join(',') +
+           '  高 ' + (box.max.y-box.min.y).toFixed(2) + '\n';
+  }
+  // 顶点色？
+  const m0 = skMeshes[0];
+  if (m0) txt += '  材质数=' + (Array.isArray(m0.material)?m0.material.length:1) +
+                 ' 顶点色=' + !!m0.geometry.attributes.color + '\n';
+  log(txt);
+  window.__scene = scene; window.__T = THREE; window.__sk = skMeshes; window.__bones = bones;
+  window.__READY = true; render();
+}, undefined, e => log('LOAD ERROR: ' + (e && e.message ? e.message : e)));
+
+const v = QS.get('v') || 'front';
+function render(){
+  if (!root) return;
+  const box = new THREE.Box3().setFromObject(root, true);
+  const c = box.getCenter(new THREE.Vector3());
+  const H = box.max.y - box.min.y, d = H * 1.5;
+  const p = { front:[0,H*0.5,d], side:[d,H*0.5,0], q:[d*0.6,H*0.8,d*0.6], fit:[0,H*0.5,d] }[v];
+  camera.position.set(p[0],p[1],p[2]);
+  camera.lookAt(c.x, c.y*0.98, c.z);
+  renderer.render(scene, camera);
+}
+addEventListener('resize', ()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight); render(); });
+render();
+</script></body></html>
