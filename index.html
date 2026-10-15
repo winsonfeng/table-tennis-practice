@@ -1571,6 +1571,14 @@ function makePaddle(rubber, style){
       toonMat(0x3a2716));
     cap.position.set(0, gy - S.grip*0.5 + 0.010, 0); g.add(cap);
   }
+  // 整个球拍半透明：可从背面看穿击球（底板 / 拍柄 / 拍肩一并半透）
+  g.traverse(o => {
+    if (o.material){
+      o.material.transparent = true;
+      if (o.material.opacity >= 1) o.material.opacity = 0.5;
+      o.material.depthWrite = false;
+    }
+  });
   return g;
 }
 let   pPad = makePaddle(0xd23b3b, 'penhold');    scene.add(pPad);   // 玩家：直拍 · 红面
