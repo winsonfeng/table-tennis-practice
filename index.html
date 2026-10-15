@@ -4120,9 +4120,28 @@ async function loadCharLib(){
     try{
       const g    = await loader.loadAsync(url);
       const src  = g.scene;
-      let sk = null;
-      src.traverse(o=>{ if (o.isSkinnedMesh && !sk) sk = o.skeleton; });
+      let sk = null, sm = null;
+      src.traverse(o=>{ if (o.isSkinnedMesh && !sk){ sk = o.skeleton; sm = o; } });
       if (!sk) continue;
+      /* 复位到 T-pose 作为每帧基准：
+         模型导出的节点变换是"导出时的当前姿势"（交叉步 + 右腿前踢 + 手臂前伸下垂），
+         从它出发做最小旋转对齐，四肢会带上那个姿势固有的扭转 ⇒ 手脚扭曲。
+         glTF 规范：bindWorld = meshWorld × inverse(IBM) */
+      {
+        const mw  = sm.matrixWorld.clone();
+        const bw  = sk.bones.map((b,i)=> new THREE.Matrix4().multiplyMatrices(
+                      mw, new THREE.Matrix4().copy(sk.boneInverses[i]).invert()));
+        const at  = new Map(sk.bones.map((b,i)=>[b,i]));
+        const P0  = new THREE.Vector3(), Q0 = new THREE.Quaternion(), S0 = new THREE.Vector3();
+        for (let i=0;i<sk.bones.length;i++){
+          const b = sk.bones[i];
+          let p = b.parent, pw = null;
+          while (p){ if (at.has(p)){ pw = bw[at.get(p)]; break; } p = p.parent; }
+          if (!pw) pw = b.parent ? b.parent.matrixWorld : new THREE.Matrix4();
+          new THREE.Matrix4().copy(pw).invert().multiply(bw[i]).decompose(P0, Q0, S0);
+          b.position.copy(P0); b.quaternion.copy(Q0); b.scale.copy(S0);
+        }
+      }
       src.updateMatrixWorld(true);
       const B = {}; for (const b of sk.bones) B[b.name] = b;
       // 骨长：在世界空间量（含 __fit 0.591 缩放），运行时再乘容器缩放
@@ -4165,8 +4184,9 @@ function attachCharModel(P, idx, ghost, targetH){
   if (ghost){
     lib.src.traverse(o=>{ if (!o.isMesh) return;
       const ms = Array.isArray(o.material)?o.material:[o.material];
+      // 0.30 太淡，己方几乎看不见；0.62 既能看清人物又不挡球
       o.material = ms.map(m=>{ const c = m.clone();
-        c.transparent = true; c.opacity = 0.30; c.depthWrite = true; return c; });
+        c.transparent = true; c.opacity = 0.62; c.depthWrite = true; return c; });
     });
   }
   // 火柴人：直接从场景摘除（不能只靠 visible=false —— updateHuman 每帧会 P.torso.visible=true 把它点亮）
