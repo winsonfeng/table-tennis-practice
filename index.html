@@ -30,13 +30,15 @@
     box-shadow:0 5px 0 rgba(47,35,20,.55), 0 12px 26px rgba(20,40,60,.25)}
   #top .t{font-size:15px;font-weight:800;letter-spacing:.5px;color:var(--txt)}
   #top .t small{display:block;font-size:10px;color:var(--dim);font-weight:600;letter-spacing:0}
-  #sc{display:flex;align-items:center;gap:9px;font-variant-numeric:tabular-nums}
-  #sc b{font-size:23px;line-height:1;font-weight:900;color:#fff;background:var(--ink);
-    border-radius:11px;padding:3px 9px;min-width:34px;text-align:center;
-    box-shadow:inset 0 -3px 0 rgba(255,255,255,.18)}
-  #sc .u{color:#2b7fd4;font-weight:900} #sc .a{color:#e0453a;font-weight:900}
-  #sc .sep{color:var(--ink);font-size:20px;font-weight:900}
-  #rv{font-size:11px;color:#7a6544;border-left:3px dotted #e0c9a6;padding-left:12px;font-weight:800}
+  #sc{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums}
+  #sc .pl{display:flex;align-items:center;gap:7px;padding:3px 11px;border-radius:14px;font-weight:900;border:2px solid transparent}
+  #sc .pl.you{background:rgba(59,130,246,.16);color:#1f6fd6;border-color:rgba(59,130,246,.45)}
+  #sc .pl.ai{background:rgba(239,68,68,.15);color:#e0453a;border-color:rgba(239,68,68,.42);flex-direction:row-reverse}
+  #sc .pl .nm{font-size:13px;font-weight:900;letter-spacing:2px}
+  #sc .pl b{font-size:27px;line-height:1;font-weight:900;min-width:24px;text-align:center;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  #sc .vs{font-size:18px;font-weight:900;color:var(--ink);opacity:.4;padding:0 1px}
+  #rv{display:flex;align-items:center;gap:4px;font-size:11px;color:#7a6544;
+    background:#fff3dd;border:2px solid #e3c9a3;border-radius:999px;padding:3px 11px;font-weight:800;margin-left:4px}
   #rv b{color:#b8560f;font-size:14px;font-weight:900}
 
   #left{top:88px;left:12px;width:274px;max-height:calc(100vh - 230px);overflow-y:auto;z-index:5}
@@ -97,6 +99,7 @@
   .gS{color:#ff7a2f;font-weight:900} .gA{color:#2f9e34;font-weight:900}
   .gB{color:#0e8fa8;font-weight:900} .gC{color:#9a8467;font-weight:900}
   .gD{color:#e0342a;font-weight:900}
+  .cYou{color:#1f6fd6;font-weight:900} .cAi{color:#e0453a;font-weight:900}
   .bar{position:relative;height:12px;background:#f7e7ca;border:2px solid var(--ink);border-radius:999px;
     margin:6px 0 4px;overflow:hidden}
   .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;
@@ -144,11 +147,12 @@
   .chainbar .arrow{color:#2f2314;margin:0 1px;font-weight:900}
 
   #toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.9);z-index:20;
-    font-size:34px;font-weight:900;letter-spacing:2px;opacity:0;pointer-events:none;transition:.28s;color:#fff;
-    -webkit-text-stroke:3px var(--ink);text-shadow:0 6px 0 rgba(47,35,20,.45), 0 12px 30px rgba(0,0,0,.30)}
+    text-align:center;opacity:0;pointer-events:none;transition:.28s}
   #toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
-  #toast small{display:block;font-size:13px;font-weight:900;color:#fff;-webkit-text-stroke:2px var(--ink);
-    letter-spacing:0;margin-top:6px}
+  #toast .box{display:inline-block;background:linear-gradient(180deg,#fffdf6,#ffeccb);border:3px solid var(--ink);border-radius:24px;
+    padding:20px 34px;box-shadow:0 6px 0 rgba(47,35,20,.45), 0 14px 34px rgba(0,0,0,.28)}
+  #toast .box b{display:block;font-size:32px;font-weight:900;color:var(--ink);letter-spacing:1px;line-height:1.15;text-shadow:0 2px 0 rgba(255,255,255,.55)}
+  #toast .box small{display:block;font-size:14px;font-weight:800;color:#7a6544;margin-top:10px;letter-spacing:0;line-height:1.4}
 
   #err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;
     background:var(--bg);z-index:99;text-align:center;padding:30px;gap:10px}
@@ -161,8 +165,8 @@
 <div id="c"></div>
 
 <div id="top" class="panel">
-  <div class="t">乒乓球 3D 物理模拟<small>落点反解 · 实时轨迹 / 旋转 / 撞击力 / 摩擦力</small></div>
-  <div id="sc"><span class="u">你</span><b id="sp">0</b><span class="sep">:</span><b id="sa">0</b><span class="a">AI</span>
+  <div class="t">乒乓球 3D 物理模拟<small>落点反解 · 实时轨迹 · 旋转 · 撞击力 · 摩擦力</small></div>
+  <div id="sc"><span class="pl you"><span class="nm">你</span><b id="sp">0</b></span><span class="vs">:</span><span class="pl ai"><b id="sa">0</b><span class="nm">AI</span></span>
     <span id="rv">回合 <b>0</b></span></div>
 </div>
 
@@ -176,7 +180,7 @@
     <button id="b_mode">比赛模式：关</button>
     <button id="b_newmatch" class="hidden">再来一局</button>
   </div>
-  <div class="kv"><span class="k">比分</span><span class="n hl" id="r_mscore">0 : 0</span></div>
+  <div class="kv"><span class="k">比分</span><span class="n" id="r_mscore"><span class="cYou">0</span><span style="opacity:.5;padding:0 3px">:</span><span class="cAi">0</span></span></div>
   <div class="kv"><span class="k">赛况</span><span class="n" id="r_mstat">自由练习</span></div>
   <div class="kv"><span class="k">本板评分</span><span class="n" id="r_mlast">—</span></div>
   <div class="kv"><span class="k">平均 / 最佳</span><span class="n" id="r_mavg">— / —</span></div>
@@ -1543,11 +1547,12 @@ function makePaddle(rubber, style){
       bevelThickness:0.0009, bevelSize:0.0009, bevelSegments:2, curveSegments:48 }), wood);
   blade.position.z = -0.0031; blade.castShadow = true; g.add(blade);
 
-  // 正手胶皮（红/蓝）+ 反手胶皮（黑）
-  const fh = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48), toonMat(rubber));
+  // 正手胶皮（红/蓝）+ 反手胶皮（黑）：半透明，可透见球与接触点
+  const fh = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48),
+    toonMat(rubber, { transparent:true, opacity:0.5, side:THREE.DoubleSide, depthWrite:false }));
   fh.position.z = 0.0040; g.add(fh);
   const bh = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48),
-    toonMat(0x2a2f3d, { side:THREE.DoubleSide }));
+    toonMat(0x2a2f3d, { side:THREE.DoubleSide, transparent:true, opacity:0.5, depthWrite:false }));
   bh.position.z = -0.0040; g.add(bh);
 
   // 拍柄：直拍为扁短柄，横拍为带 flare 的长柄
@@ -2079,7 +2084,7 @@ function syncMatchUI(){
   if (b){ b.textContent = G.mode==='match' ? '比赛模式：开' : '比赛模式：关'; b.classList.toggle('on', G.mode==='match'); }
   const nb = $('b_newmatch'); if (nb) nb.classList.toggle('hidden', !(G.mode==='match' && G.match.over));
   const t = $('matchTag'); if (t) t.textContent = G.mode==='match' ? (G.match.over ? '本局结束' : '11分制') : '练习';
-  const sc = $('r_mscore'); if (sc) sc.textContent = `${G.score.p} : ${G.score.a}`;
+  const sc = $('r_mscore'); if (sc) sc.innerHTML = `<span class="cYou">${G.score.p}</span><span style="opacity:.5;padding:0 3px">:</span><span class="cAi">${G.score.a}</span>`;
   const st = $('r_mstat');
   if (st){
     if (G.mode!=='match') st.innerHTML = '<span style="color:var(--dim)">自由练习</span>';
@@ -3501,7 +3506,8 @@ function syncTarget(){
 let toastT = 0;
 function toast(main, sub){
   const el = $('toast');
-  el.innerHTML = main + (sub ? `<small>${sub}</small>` : '');
+  const esc = s => String(s).replace(/[&<"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  el.innerHTML = `<div class="box"><b>${esc(main)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`;
   el.classList.add('show'); toastT = performance.now();
 }
 let tipT = 0;
