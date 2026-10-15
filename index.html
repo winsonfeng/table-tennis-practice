@@ -1683,9 +1683,13 @@ const vertRef  = new THREE.Line(
 vertRef.computeLineDistances();
 const slipArrow= new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(), 0.10, 0x3fd0c9, 0.024, 0.014);
 const frzLine  = mkLine(0xff9d3c, 900, false, 0.95);
-scene.add(spinAxis, spinRing, spinTip, faceDisc, normArrow, vertRef, slipArrow);
+/* 定格·挥拍路径预测：swingPath=接触前的实际挥拍轨迹（实线）/ swingPred=随挥预测外推（虚线）/ swingPredArrow=预测方向箭头 */
+const swingPath = mkLine(0x6ee7ff, 130, false, 0.95);   // 实际挥拍路径（青）
+const swingPred = mkLine(0xa3ff8f, 130, true, 0.92);    // 随挥预测（虚线，绿）
+const swingPredArrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,-1), new THREE.Vector3(), 0.12, 0xa3ff8f, 0.030, 0.018);
+scene.add(spinAxis, spinRing, spinTip, faceDisc, normArrow, vertRef, slipArrow, swingPath, swingPred, swingPredArrow);
 [spinAxis, spinRing, spinTip, faceDisc, normArrow, vertRef, slipArrow].forEach(o=>{ o.visible = false; });
-frzLine.visible = false;
+frzLine.visible = swingPath.visible = swingPred.visible = swingPredArrow.visible = false;
 /* 受力矢量 */
 const fGrav = new THREE.ArrowHelper(new THREE.Vector3(0,-1,0), new THREE.Vector3(), 0.2, 0x94a3b8, 0.05, 0.03);
 const fDrag = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(), 0.2, 0x3fd0c9, 0.05, 0.03);
@@ -2644,6 +2648,8 @@ function frzEnter(c0, info){
   f.info = info ? Object.assign({}, info) : null;
   f.sol = null; f.evPath = null; f.ok = false; f.autoInfo = null;
   f.prevCam = G.camMode; f.timingClamp = 0;
+  // 快照「接触前」的玩家挥拍轨迹（定格后随挥阶段会继续往缓冲写入，故此刻定格最准）
+  f.swingTrail = Array.from(swingBuf.p);
   G.live = false;                                  // 冻结物理推进（不会判分）
   G.st.set(c0); G.st[3] = 0; G.st[4] = 0; G.st[5] = 0;   // 球停在接触点，保留旋转
   setCam(CAM_MACRO);
@@ -3179,7 +3185,8 @@ function updateCharacters(dt){
     buf.push(pos[0], pos[1], pos[2]);
     if (buf.length > 46*3) buf.splice(0, buf.length-46*3);
     const ln = who==='p' ? swingLineP : swingLineA;
-    ln.visible = show && (UI ? UI.k_swing.checked : true) && buf.length > 6;
+    ln.visible = show && (UI ? UI.k_swing.checked : true) && buf.length > 6 &&
+                 !(G.frz && G.frz.active && who === 'p');   // 定格时改用 snap 版挥拍路径（见 updateFreezeVisual）
     if (ln.visible) ln.set(buf);
   }
 }
@@ -3279,6 +3286,7 @@ function updateFreezeVisual(){
     spinAxis.visible = spinRing.visible = spinTip.visible = false;
     faceDisc.visible = normArrow.visible = vertRef.visible = false;
     slipArrow.visible = false; frzLine.visible = false;
+    swingPath.visible = swingPred.visible = swingPredArrow.visible = false;
     return;
   }
   const c = f.c, sol = f.sol;
@@ -3316,6 +3324,44 @@ function updateFreezeVisual(){
   normArrow.setLength(0.16, 0.032, 0.019);
   vertRef.visible = true;
   vertRef.position.set(padP[0], padP[1], padP[2]);
+
+  // ── 挥拍路径预测：接触前的实际挥拍轨迹（实线）+ 随挥方向外推预测（虚线 + 箭头）
+  const showSwing = UI ? (UI.k_swing && UI.k_swing.checked) : true;
+  if (showSwing && f.swingTrail && f.swingTrail.length >= 12){
+    const tr = f.swingTrail.slice();
+    const nP = tr.length/3;
+    // 末点对齐到定格拍位（接触点），仅当快照末点与定格拍位差距明显时才补一段
+    const lx = tr[(nP-1)*3], ly = tr[(nP-1)*3+1], lz = tr[(nP-1)*3+2];
+    if (Math.hypot(lx-padP[0], ly-padP[1], lz-padP[2]) > 0.05){
+      tr.push(padP[0], padP[1], padP[2]);
+    }
+    swingPath.set(tr);
+    swingPath.visible = true;
+    // 取最后两点的位移作为出手瞬间的拍头速度，按指数衰减外推出随挥轨迹
+    const ax2 = tr[tr.length-6], ay2 = tr[tr.length-5], az2 = tr[tr.length-4];
+    const bx2 = tr[tr.length-3], by2 = tr[tr.length-2], bz2 = tr[tr.length-1];
+    let vx = bx2-ax2, vy = by2-ay2, vz = bz2-az2;
+    const vl = Math.hypot(vx,vy,vz);
+    if (vl > 1e-4){
+      const steps = 18, decay = Math.pow(0.12, (1/60)/0.28);   // 0.28s 内衰减到约 12%
+      const pts = [bx2, by2, bz2];
+      let px = bx2, py = by2, pz = bz2;
+      for (let i=0;i<steps;i++){
+        vx *= decay; vy *= decay; vz *= decay;
+        px += vx; py += vy; pz += vz;
+        pts.push(px, py, pz);
+      }
+      swingPred.set(pts);
+      swingPred.visible = true;
+      swingPredArrow.visible = true;
+      swingPredArrow.position.set(px, py, pz);
+      const dx = px-bx2, dy = py-by2, dz = pz-bz2, dl = Math.hypot(dx,dy,dz);
+      if (dl > 1e-3){
+        swingPredArrow.setDirection(new THREE.Vector3(dx/dl, dy/dl, dz/dl));
+        swingPredArrow.setLength(clamp(dl*0.6, 0.05, 0.18), 0.030, 0.018);
+      }
+    } else { swingPred.visible = false; swingPredArrow.visible = false; }
+  } else { swingPath.visible = false; swingPred.visible = false; swingPredArrow.visible = false; }
 
   // ── 来球旋转：轴 + 环绕方向箭头
   const wv = [c[6],c[7],c[8]], wl = vlen(wv);
@@ -3787,6 +3833,7 @@ function updateFreezeHUD(){
     if (!G.auto) m = `<span class="warn">手动模式：出球方向 / 力度只由「拍面倾角 ${G.P.tilt>0?'+':''}${G.P.tilt}° · 转向 ${G.P.face>0?'+':''}${G.P.face}° · 力度 ${G.P.power}%」决定，系统不保证落台。</span>` + (m?'<br>':'') + m;
     else if (sol.faceOn) m += (m?'<br>':'') + `<span class="hl2">手动拍面：倾角 ${G.P.tilt>0?'+':''}${G.P.tilt}° · 转向 ${G.P.face>0?'+':''}${G.P.face}°</span>（<b>G</b> 归零 · <b>X</b> 重新求最优）`;
     m += (m?'<br>':'') + '拖动左侧滑块（时机 / 力度 / 摩擦 / <b>拍面倾角 / 转向</b> / 落点）可实时重算出球线路；按「出球继续」或<b>空格</b>放出该球。';
+    m += (m?'<br>':'') + '<span style="color:#6ee7ff">━</span> 接触前实际挥拍轨迹 · <span style="color:#a3ff8f">┄</span> 随挥方向预测（由出手拍头速度外推）。';
     $('f_msg').innerHTML = m;
   } else {
     ['f_ang','f_pw','f_out','f_lp'].forEach(k=>$(k).textContent='—');
@@ -4393,6 +4440,8 @@ window.__PONG.aiPredictHit = aiPredictHit; window.__PONG.incomingTop = incomingT
 window.__PONG.setMatch = setMatch; window.__PONG.newMatch = newMatch;
 window.__PONG.ratePlayerShot = ratePlayerShot; window.__PONG.matchPickTarget = matchPickTarget;
 window.__PONG.pointTo = pointTo; window.__PONG.syncMatchUI = syncMatchUI;
+window.__PONG.swingBuf = swingBuf; window.__PONG.swingPath = swingPath;
+window.__PONG.swingPred = swingPred; window.__PONG.swingPredArrow = swingPredArrow;
 requestAnimationFrame(loop);
 </script>
 </body>
