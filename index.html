@@ -1149,6 +1149,9 @@ const TECH = {
            // 靠摩擦而非撞击把球带起来。加大前倾偏置把拍面压下去（brush 负责给上旋）。
            loft:-0.26, brush:6, pollFh:[1.05,-0.55,-0.75], pollBh:[0.10, 0.45,-0.70],
            h2u:0.88, h2o:-0.32, h2f:0.12, rBack:0.26, rEnd:0.62, faceDown:0.30,
+           // 拉球的完整弧线：引拍沉到膝盖(右膝) → 经触球点 → 随挥收到眉眼(左眼)
+           // ftUp 0.16：抵消紧凑风格 swingG(勒布伦 0.72) 对随挥的压缩，保证收到眉眼
+           bsK:0.56, bsA:1.25, ftUp:0.16, coilG:1.25, ampFloor:0.95,
            desc:'拍头朝外上 · 拍面前倾压拍 · 甩腕薄摩擦' },
   drive: { name:'攻球', hu:0.64, ho:0.76, hf:0.12, wrist:0.85, swing:0.90, face:'略前倾',
            loft:-0.14, pollFh:[1.00,-0.35,-0.55], pollBh:[0.20, 0.60,-0.55], faceDown:0.2,
@@ -1173,6 +1176,7 @@ const TECH = {
   lob  : { name:'高调', hu: 0.16, ho:0.72, hf:0.22, wrist:0.85, swing:1.05, face:'前倾·包球',
            loft: 0.60, brush: 12, dCap:3.6, pollFh:[0.20, 0.80,-0.10], pollBh:[0.15, 0.75,-0.15],
            h2u:0.34, h2o:0.76, h2f:0.16, rBack:0.28, rEnd:0.66, faceDown:0.18,
+           bsK:0.60, bsA:1.20, ftUp:0.12, coilG:1.20, ampFloor:0.90,
            desc:'拍头下沉再向上拎 · 拍面压住球顶摩擦 · 高弧线深落点' },
   push : { name:'推挡', hu:0.96, ho:-0.20, hf:0.12, wrist:0.30, swing:0.40, face:'立拍',
            loft: 0.08, pollFh:[0.30, 0.55,-0.45], pollBh:[0.25, 0.60,-0.50], faceDown:0.02,
@@ -2928,10 +2932,16 @@ function updateCharacters(dt){
     pad.prevGoalX = goalX;
     pad.prevGoalZ = goalZ;
 
-    // ── 屈膝：球越低蹲得越深；出手瞬间额外下压
+    // ── 屈膝：跟着「当前拍位高度」走，而不是全程钉在接触点高度。
+    //    旧写法全程按 plan.c[1]（接触点）算 ⇒ 挥拍途中身体高度恒定不变：
+    //    拉球引拍沉到膝盖时只有手臂单独伸下去（肩→腕 0.8m 远超臂长 0.55m），
+    //    观感就是"整个人钉着不动、只有小臂在发力"。
+    //    改成跟随上一帧视觉拍位：拍低 → 深蹲（肩跟着沉下去才够得到膝盖），
+    //    拍高 → 蹬地起身 ⇒ 自然出现「沉膝蓄力 → 起身 → 收在眉眼」的全身发力。
     const cy = plan && anyLive ? plan.c[1] : pad.p[1];
+    const cyNow = (pad.vpos && pad.vpos.length === 3) ? pad.vpos[1] : cy;
     // crouchG：勒布伦「重心压得极低、压在前脚掌」⇒ 整体下蹲更深
-    const crouch = clamp((clamp((1.16-cy)/0.42, 0, 1)*0.72
+    const crouch = clamp((clamp((1.16-cyNow)/0.42, 0, 1)*0.82
                           + (tc!==null && tc<0.22 ? 0.10 : 0)) * styleNow().crouchG, 0, 0.90);
 
     // ── 正手 / 反手：击球点在持拍手一侧 = 正手；越过身体中线到另一侧 = 反手
@@ -2971,33 +2981,47 @@ function updateCharacters(dt){
     // 只有被逼退台才放大 —— 近台紧凑与"退台正手大弧线"两者兼得。
     const depth = clamp((Math.abs(goalZ) - 1.55) / 0.85, 0, 1);   // 0=贴台 1=退台
     const stAmp = styleNow().ampNear + (styleNow().ampFar - styleNow().ampNear) * depth;
-    const amp  = clamp(tc0/0.62, 0.45, 1) * stAmp;          // 引拍幅度：时间紧 / 贴台 → 动作紧凑
+    // 拉球 / 高调（T.ampFloor）：不管贴台多近都要撑开完整弧线（膝盖→眉眼）。
+    // 否则被风格的小框架（勒布伦 ampNear 0.52）一压，弧线就抹平成推挡。
+    const ampF = (T.ampFloor !== undefined) ? Math.max(stAmp, T.ampFloor) : stAmp;
+    const amp  = clamp(tc0/0.62, 0.45, 1) * ampF;    // 引拍幅度：时间紧 / 贴台 → 动作紧凑
 
     // ── 转腰（拉拍蓄力 → 击球 → 随挥）；反手转腰方向相反
     // 转腰窗口跟着来球的可用时间走：快球（tc0 小）转腰更早开始，与拍头同步
-    const coilT = swingCoil(tc, rel, bh ? -1 : 1, clamp(tc0*0.85, 0.25, 0.58));
+    // coilG：拉球转腰更大（腰腿带手臂，而不是只有小臂在动）
+    const coilT = swingCoil(tc, rel, bh ? -1 : 1, clamp(tc0*0.85, 0.25, 0.58)) * (T.coilG || 1);
     charCoil[who] += (coilT - charCoil[who]) * Math.min(1, dt*11);
 
     // ── 完整挥拍时间轴：预备 → 引拍 → 加速 → 触球 → 随挥 → 复位（不再是"粘着预测点不动"）
     let pos, nv = pad.n.slice();
     const clock = performance.now()/1000;
-    const sway  = Math.sin(clock*1.55 + (who==='p'?0:1.3))*0.020;   // 待机微动，避免僵硬
+    // 待机微动：双频起伏 + 横向重心轻移。原来只有单频 2cm 摆动 ⇒ 球还没到就把拍
+    // "架死"在那儿等，看着很僵。改成小跳步感的起伏，重心也跟着轻轻左右倒。
+    // （屈膝已跟随拍位，所以这个起伏会连带把身体带动起来，不再是一根钉子）
+    const tSw = clock*1.55 + (who==='p'?0:1.3);
+    const sway  = Math.sin(tSw)*0.026 + Math.sin(tSw*2.1+0.7)*0.012;
+    const swayX = Math.sin(tSw*0.83+0.5)*0.020;
     // 球拍锚在「身体实际站位」（平滑跟随）而不是站位目标点：
     // 目标点会随新来球瞬间跳变，若直接用会让球拍相对身体猛甩（抽搐）
     const base  = [H.stance[0], 0, H.stance[1]];
     const idle  = vadd(vadd(base.slice(), vmul(R1, bh ? -0.17 : 0.25)), vmul(F, 0.20));
-    idle[1] = 0.95 + sway - 0.07*crouch;
+    idle[0] += swayX; idle[1] = 0.95 + sway - 0.07*crouch;
     if (plan && anyLive && G.last !== who){                          // 预备时提前朝来球方向让位
       const toC = vnorm(vsub(plan.c, [goalX, 1.0, goalZ]));
       idle[0] += toC[0]*0.10; idle[2] += toC[2]*0.10;
     }
-    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.22*amp)), vmul(F, 0.08*amp))  // 横打：收到腹前偏非持拍侧
-                  : vadd(vadd(base.slice(), vmul(R1,  0.30*amp)), vmul(F,-0.20*amp)); // 正手：紧凑后引（过度则改 0.30/0.20）
+    // bsA：拉球后引更远（撑起"右膝→左眼"的完整弧线）
+    const bsA = T.bsA || 1;
+    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.22*amp*bsA)), vmul(F, 0.08*amp*bsA))  // 横打：收到腹前偏非持拍侧
+                  : vadd(vadd(base.slice(), vmul(R1,  0.30*amp*bsA)), vmul(F,-0.20*amp*bsA)); // 正手：后引
     // 引拍高度必须贴着击球点（攻/拉/扣略低于球、搓/挑略高于球）。
     // 旧式写死 0.80m，而肩高 1.35m ⇒ 垂直差 0.65m，身体只会水平前倾补不了垂直差，
     // 前臂胶囊被拉长到 1.5 倍 —— 这就是"正手回球不像真实"的直接观感来源。
-    const bsY = (T.hf > 0.5) ? clamp(cy + 0.06, 0.92, 1.32)          // 搓/挑：球上方下切
-                             : clamp(cy - 0.14, 0.86, 1.46);          // 攻/拉/扣：球下方上挥
+    // 拉球 / 高调（T.bsK）：引拍真正沉到膝盖高度，弧线才有"从膝到眼"的落差。
+    // 屈膝量已跟随拍位（见上）⇒ 蹲下去肩才跟得下来，手臂不会被拉成橡皮筋。
+    const bsY = (T.hf > 0.5) ? clamp(cy + 0.06, 0.92, 1.32)             // 搓/挑：球上方下切
+              : (T.bsK !== undefined) ? T.bsK                           // 拉球/高调：沉到膝盖
+                                      : clamp(cy - 0.14, 0.86, 1.46);    // 攻/扣：球下方上挥
     bs[1] = bsY - 0.06*crouch - (T.hf > 0.5 ? 0 : 0.10*clamp(P.spin/100,0,1));
     const pwK  = clamp(P.power/100, 0, 1);
     let swingS = 0, finG = 0, bkG = 0;   // 挥拍进度 / 随挥展开度 / 复位度（拍柄轨迹要用）
@@ -3035,6 +3059,8 @@ function updateCharacters(dt){
       const Tsw = (T.swing || 1) * styleNow().swingG;
       const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.36*Tsw)), vmul(R1, -0.46*Tsw*sw));
       ft[1] += 0.38*Tsw;
+      // 拉球 / 高调：随挥收到眉眼高度（"右膝→左眼"弧线的终点），否则弧线半途就断了
+      if (T.ftUp) ft[1] = Math.min(1.60, ft[1] + T.ftUp);
       // 随挥 0.38s + 复位 0.26s ⇒ rel≈0.64 就回到预备位。
       // 旧值（0.55 + 0.50 = 1.05s）来不及：对手来球在 rel≈0.6 就到了，
       // 于是「归位」和「引拍」挤在一起，1m 的归位位移把 7cm 的引拍完全淹没，
@@ -3161,7 +3187,7 @@ function updateCharacters(dt){
     const anchor = updateHuman(H, {
       facing:F, stance:[goalX, goalZ], speed: 2.4 + (plan?2.6:0),
       pos, n:nv, crouch, coil: charCoil[who], look: lookTarget,
-      style: styleI, pose, headDir, bh, sw, who,
+      style: styleI, pose, headDir, bh, sw, who, tech: techKey,
       faceDown: T.faceDown || 0,                  // 视觉压拍量，透传给 updateHuman 让握把同步下压
       // 必须与上面 paddleQuat 用同一个 gripRoll，否则握把/拍柄与拍面错位 ⇒ 手没握在拍柄上
       extraRoll: gripRoll,                              // 转腰 + 挥拍阶段 → 拍柄朝向跟着转
@@ -4235,7 +4261,10 @@ function updateHuman(P, I, dt){
   // elbowIn：勒布伦「大臂基本不动、肘关节作为支点略微前顶」⇒ 把肘往身体收，
   // 摆动交给前臂与手腕，动作框架更小、出球更快。
   const pl0 = (I.pose && I.pose.poll) || [0.95,-0.40,-0.55];
-  const pl  = [pl0[0]*(1 - styleNow().elbowIn), pl0[1], pl0[2]];
+  // 拉球 / 高调：大臂必须参与摆动（"腰腿带大臂"），否则只剩小臂在抖 ⇒ 观感是
+  // 只有小臂发力。把「肘贴身」的收紧放松，让肘外扩、大臂跟着挥出去。
+  const elbowRelax = (I.tech && TECH[I.tech] && TECH[I.tech].bsK !== undefined) ? 0.30 : 1;
+  const pl  = [pl0[0]*(1 - styleNow().elbowIn*elbowRelax), pl0[1], pl0[2]];
   const pollA = vnorm(vadd(vadd(vmul(Rp, pl[0]), vmul(Fp, pl[1])), [0, pl[2], 0]));
   const elbow = ik2(shR, wrist, 0.295, 0.255, pollA);
   const eL = P.armU[ri]; setBone(eL, shR, elbow);
