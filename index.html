@@ -4080,6 +4080,10 @@ const _cA=new THREE.Vector3(),_cB=new THREE.Vector3(),_cC=new THREE.Vector3();
 const _cP=new THREE.Vector3(),_cQ=new THREE.Vector3();
 const _c1=new THREE.Quaternion(),_c2=new THREE.Quaternion(),_c3=new THREE.Quaternion();
 const _cV=[new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3(),new THREE.Vector3()];
+const _cD=new THREE.Vector3(),_cE=new THREE.Vector3(),_cF=new THREE.Vector3();
+const _cZ=new THREE.Vector3(0,0,1);
+const _m1=new THREE.Matrix4();
+const _qA=new THREE.Quaternion(),_qB=new THREE.Quaternion();
 
 function boneAxis(b){
   const kid = b.children.find(c => c.isBone);
@@ -4095,12 +4099,28 @@ function aimBoneAt(b, axis, tgt){
   b.getWorldPosition(_cP);
   _cA.copy(tgt).sub(_cP);
   const L = _cA.length(); if (L < 1e-6) return;
-  _cA.multiplyScalar(1/L);
-  b.parent.getWorldQuaternion(_c1); _c2.copy(_c1).invert();
-  _cB.copy(_cA).applyQuaternion(_c2);            // 目标方向 → 父空间
-  _cC.copy(axis).applyQuaternion(b.quaternion);  // 当前方向 → 父空间
-  _c1.setFromUnitVectors(_cC, _cB);
-  b.quaternion.premultiply(_c1);
+  _cA.multiplyScalar(1/L);                        // f：世界空间瞄准方向（单位）
+  b.parent.getWorldQuaternion(_c1); _c2.copy(_c1).invert();   // 父世界旋转 / 逆
+
+  // 确定性正交基：把骨骼局部 +Z 旋到指向 f，roll 由世界参考轴钉死
+  // ⇒ 连续、不放大、180° 对面不跳（旧法 setFromUnitVectors 的 roll 不定会扭手）。
+  // 参考轴默认世界 up；f 接近竖直（脊柱/腿）时改用世界 forward，避免退化。
+  _cB.set(0,1,0);
+  if (Math.abs(_cA.y) > 0.99) _cB.set(0,0,1);
+  _cC.copy(_cA);                                  // f
+  _cD.copy(_cB).cross(_cC);                        // ref × f
+  if (_cD.lengthSq() < 1e-8){ _cB.set(0,0,1); _cD.copy(_cB).cross(_cC); }
+  _cD.normalize();                                 // x
+  _cE.copy(_cC).cross(_cD);                         // f × x = y
+  _m1.makeBasis(_cD, _cE, _cC);                     // 局部 +Z → f（世界旋转 M）
+  _qA.setFromRotationMatrix(_m1);                   // qM
+  if (axis && axis.isVector3) _cF.copy(axis); else _cF.set(axis[0],axis[1],axis[2]);
+  _cF.normalize();
+  _qB.setFromUnitVectors(_cF, _cZ);                 // qR：axis → (0,0,1)
+  _qA.multiply(_qB);                                // qW = qM * qR（期望的世界旋转）
+
+  _c3.copy(_c2).multiply(_qA);                      // 转回父空间：父世界逆 * qW
+  b.quaternion.copy(_c3);                           // 绝对设定（不再 premultiply 累积）
   b.updateWorldMatrix(false, false);
 }
 /* 目标够不到时把目标拉回可及范围，避免骨段被"拉长" */
@@ -4223,8 +4243,37 @@ function attachCharModel(P, idx, ghost, targetH){
   }
   // 火柴人：直接从场景摘除（不能只靠 visible=false —— updateHuman 每帧会 P.torso.visible=true 把它点亮）
   P.stickParts.forEach(o=>{ if (o.parent) o.parent.remove(o); });
+  /* 合成鞋掌：Quaternius 这批模型的脚只是踝下一块约 2cm 厚的平板（Foot 骨只带 45 个顶点），
+     小腿直接戳地 ⇒ 看着"脚掌没了"。rig 有完整脚部位姿（P.foot[i]：位置=踝点、局部 +Z=脚尖方向），
+     按它摆一只鞋把脚掌体积补回来。材质克隆模型自己的 Skin（脚踝/脚底就是这个色，ghost 分支已把它
+     改成半透明），颜色与透明度自动和身体一致；鞋底没入模型自带的那块平板内部，不会穿帮。 */
+  let shoe = null;
+  {
+    let footMat = null;
+    lib.src.traverse(o=>{ if (footMat || !o.isMesh) return;
+      const ms = Array.isArray(o.material)?o.material:[o.material];
+      for (const m of ms) if (m.name === 'Skin'){ footMat = m; break; } });
+    if (footMat){
+      shoe = [];
+      for (let i=0;i<2;i++){
+        const g = new THREE.Group();
+        // 扁椭球当鞋：总长 17.5cm（踝后 5cm → 脚尖前 12cm）、宽 8cm、高 5cm。
+        // 旋转必须烘进几何体：mesh.scale 作用在旋转之前，直接 rotation.x=π/2 会把
+        // scale.y 变成"沿胶囊轴压缩"（越压越短越胖），bottom 还会陷到地板下。
+        const geo = new THREE.CapsuleGeometry(0.040, 0.095, 5, 14);
+        geo.rotateX(Math.PI/2);            // 胶囊轴 → 几何体局部 +Z（脚尖），径向 → ±Y（高度）
+        const up = new THREE.Mesh(geo, footMat);
+        up.scale.set(1, 0.62, 1);          // 只压高度（径向），不动长度
+        // 底面沉到地面下 4mm：模型自带平板只覆盖踝点周围一小块，鞋的脚尖/脚跟下方本是空的，
+        // 平放会看出 5mm 悬浮缝；下沉后被不透明地面深度剔除， silhouetted 接触线刚好贴地。
+        up.position.set(0, 0.0208, 0.035);
+        g.add(up); scene.add(g);
+        shoe.push(g);
+      }
+    }
+  }
   P.mdl = { ctn, s, B:lib.B, A:lib.A, REST:lib.REST, lib,
-            clipW:0, clipT:0, clipName:null };
+            clipW:0, clipT:0, clipName:null, shoe };
 }
 
 /* 每帧：把 rig 算出的关节位置 + 动作片段，摆到模型骨架上 */
@@ -4331,6 +4380,15 @@ function poseCharModel(P, J, I, dt){
     B.Head.parent.getWorldQuaternion(_c1); _c1.invert();
     B.Head.quaternion.copy(_c1).multiply(J.headQ);
     B.Head.updateWorldMatrix(false, false);
+  }
+  // ⑧ 合成鞋掌：按 rig 脚部姿态摆鞋。鞋组原点放脚底（rig 踝点恒高于脚底 0.075），
+  //    朝向取 P.foot[i] 的世界四元数（局部 +Z → 脚尖）；模型自带的平板藏在鞋里看不见。
+  if (M.shoe){
+    for (let i=0;i<2;i++){
+      const a = J.ankle[i]; if (!a) continue;
+      M.shoe[i].position.set(a[0], a[1]-0.075, a[2]);
+      M.shoe[i].quaternion.copy(P.foot[i].quaternion);
+    }
   }
 }
 
