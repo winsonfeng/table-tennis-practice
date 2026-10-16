@@ -3163,9 +3163,10 @@ function updateCharacters(dt){
     // wristG：勒布伦发力不靠大臂抡甩，而是「前臂一闪 + 手腕抖出去」的寸劲
     const wk = (T.wrist || 1) * styleNow().wristG;
     const snap0 = wristSnap(tc, rel, bT, bS);
-    // 甩腕：正手是内旋加速，反手（横打）是外展甩出 → 方向相反
-    const snap  = bh ? { spin:-snap0.spin*wk, side:-snap0.side*wk }
+    // 甩腕：正手是内旋加速，反手（横打）是外展甩出 → 方向相反（瞬时值；最终拍面由 pad.vq slerp 低通抹平跳变）
+    const sT    = bh ? { spin:-snap0.spin*wk, side:-snap0.side*wk }
                      : { spin: snap0.spin*wk, side: snap0.side*wk };
+    const snap = { spin: sT.spin, side: sT.side };
     const uRoll = (who === 'p' ? (G.P.roll || 0) : 0) * Math.PI/180;   // 手动「拍柄方向」
     const q = paddleQuat(nVvis, styleI, snap, gripRoll, { pose, headDir, userRoll: uRoll });
     if (who === 'p'){
@@ -3176,11 +3177,24 @@ function updateCharacters(dt){
     }
 
     mesh.position.set(pos[0], pos[1], pos[2]);
-    mesh.quaternion.copy(q);
+    // 拍面视觉低通：对最终四元数做「指数收敛 + 角速度上限」平滑。
+    // 指数项负责近距快速贴合；角速度上限把任何目标突变（bh 翻转 / 击球甩腕 /
+    // 准备→迎球 / 回收期拍型切换）都抹平成恒定转速的过渡，首帧转动被限制在
+    // ≤ ω·dt（默认 ~11°/帧 @60fps），彻底消除"瞬跳"。物理接触用的 pad.n / pad.p
+    // 保持原值，击球精度不受影响。
+    if (!pad.vq) pad.vq = q.clone();
+    else {
+      const expT  = 1 - Math.exp(-dt*16);            // 指数收敛因子（近距快速贴合）
+      const rem   = pad.vq.angleTo(q);               // 当前视觉四元数到目标的剩余角（弧度）
+      const omega = 12.0;                             // 角速度上限 rad/s（≈687°/s）
+      const maxT  = rem > 1e-5 ? Math.min(1, (omega*dt)/rem) : 1;
+      pad.vq.slerp(q, Math.min(expT, maxT));
+    }
+    mesh.quaternion.copy(pad.vq);
     if (conf.plane){
       const showFace = UI ? UI.k_face.checked : true;
       conf.plane.visible = showFace;
-      conf.plane.position.set(pos[0],pos[1],pos[2]); conf.plane.quaternion.copy(q);
+      conf.plane.position.set(pos[0],pos[1],pos[2]); conf.plane.quaternion.copy(pad.vq);
     }
 
     // ── 骨架
@@ -3198,6 +3212,13 @@ function updateCharacters(dt){
       extraRoll: gripRoll,                              // 转腰 + 挥拍阶段 → 拍柄朝向跟着转
       userRoll: uRoll                                   // 手动「拍柄方向」→ 手腕/握把一起转
     }, dt);
+    // 手握拍柄：poseCharModel 把握把点钉到拳心后给出拍网格的最终绝对位置（posAbs）；
+    // 无模型（纯火柴人）时退回 updateHuman 的可达球面修正（posAdj）。
+    if (anchor.posAbs || anchor.posAdj){
+      pos = anchor.posAbs || anchor.posAdj;
+      mesh.position.set(pos[0], pos[1], pos[2]);
+      if (conf.plane) conf.plane.position.set(pos[0], pos[1], pos[2]);
+    }
     VIS['head'+(who==='p'?'P':'A')] = anchor.head;
     VIS['stance'+(who==='p'?'P':'A')] = [H.stance[0], H.stance[1]];
     VIS['gap'+(who==='p'?'P':'A')] = pad.dbgGap || 0;
@@ -4285,10 +4306,14 @@ function poseCharModel(P, J, I, dt){
   // ② 容器：站位 / 朝向 / 缩放（模型自身 +Z 为正面）
   //    下蹲：rig 的屈膝量直接压低容器 —— 模型髋高只由容器决定，
   //    不压的话低球的深蹲在模型身上完全看不出来（腿长固定，膝弯不变）。
-  //    重心前压：跟着 rig 的髋部前移（打 0.55 折，否则腿够不到会被拉长）
+  //    容器基准用「真实脚基准 P.stance」（moveStance 驱动、与脚部 IK 同速），
+  //    不用快速目标 I.stance —— 否则站位一变，上半身(容器)带着 I.stance 的快项前冲，
+  //    脚却被较慢的 P.stance 钉在世界坐标 ⇒ 上半身先动、腿被拉扯（不协调）。
+  //    重心前压：跟着 rig 的髋部前移（只取 0.55 折的 lean/hipLat 增量，否则腿够不到会被拉长）
+  const pst = P.stance;   // [x, z] 实际脚基准
   M.ctn.position.set(
-    I.stance[0] + (J.hip[0]-I.stance[0])*0.55, -0.13*(I.crouch||0),
-    I.stance[1] + (J.hip[2]-I.stance[1])*0.55);
+    pst[0] + (J.hip[0]-pst[0])*0.55, -0.13*(I.crouch||0),
+    pst[1] + (J.hip[2]-pst[1])*0.55);
   M.ctn.rotation.set(0, Math.atan2(I.facing[0], I.facing[2]), 0);
   M.ctn.updateMatrixWorld(true);
   // ③ 躯干：先按 rig 的前倾 / 转腰摆好（待机时由它独立支撑，避免脊背僵住）
@@ -4325,10 +4350,52 @@ function poseCharModel(P, J, I, dt){
   // ④ 物理：持拍手臂 IK（保证拍面/击球点精确）
   B.UpperArmR.getWorldPosition(_cP);
   const shW = [_cP.x, _cP.y, _cP.z];
-  const elb = ik2Reach(shW, J.wrist, M.lib.arm*s, M.lib.fore*s, J.pollA);
+  // ── 手拍分离修复：模型骨长固定（臂长 arm+fore ≈ 0.56m），aimBoneAt 只定向不定位。
+  //    随挥段模型肩（容器只跟髋 55% + 片段转腰把肩往后带）到握把的距离实测可达 0.88m，
+  //    远超臂长 ⇒ 拳头与球拍脱开（最大 ~0.37m）。把 腕/握把/拍位 整体沿肩→腕方向
+  //    拉回模型可达球面。触球瞬间（tc≤0.05）不收——那时拍必须精确压在物理接触点上，
+  //    否则球会"打在空气上"。
+  let wT = J.wrist, gT = J.grip;
+  // 回拉权重随 tc 平滑淡出（tc>0.15 全量，tc≤0.02 归零）：旧写法 tc≤0.05 硬切禁用，
+  // 引拍段拉回的拍会在 tc=0.05 瞬间弹回接触点（0.2m 级跳变）。平滑淡出让拍匀速滑到接触点。
+  const clampW = (I.tc !== null) ? clamp((I.tc - 0.02)/0.13, 0, 1) : 1;
+  if (clampW > 0.001){
+    const armAll = (M.lib.arm + M.lib.fore) * s + 0.02;
+    const dG = vlen(vsub(gT, shW));
+    if (dG > armAll){
+      const off = vmul(vsub(gT, shW), (1 - armAll/dG) * clampW);
+      gT = vsub(gT, off);
+      wT = vsub(wT, off);
+      J.wrist = wT; J.grip = gT;
+      J.posAdj = vsub(I.pos, off);      // 拍网格 / 黄环同步平移（updateCharacters 应用 anchor.posAdj）
+    }
+  }
+  const elb = ik2Reach(shW, wT, M.lib.arm*s, M.lib.fore*s, J.pollA);
   aimBoneAt(B.UpperArmR, A.UpperArmR, _cV[0].set(elb[0],elb[1],elb[2]));
-  aimBoneAt(B.LowerArmR, A.LowerArmR, _cV[1].set(J.wrist[0],J.wrist[1],J.wrist[2]));
-  aimBoneAt(B.FistR,     A.FistR,     _cV[2].set(J.grip[0],J.grip[1],J.grip[2]));
+  aimBoneAt(B.LowerArmR, A.LowerArmR, _cV[1].set(wT[0],wT[1],wT[2]));
+  aimBoneAt(B.FistR,     A.FistR,     _cV[2].set(gT[0],gT[1],gT[2]));
+  // ── 手握拍柄：臂链 IK 之后，拳头实际落点与拍柄之间总留有 ~5-8cm 缺口
+  //    （腕→握把偏移 0.047 + 肘弯余量），观感就是"手没握住拍柄"。
+  //    把「握把点」直接钉到拳心（沿拍柄方向前移 2.8cm），球拍整体平移过去，
+  //    再让手掌朝向对齐拍柄 —— 手永远握在拍柄上。
+  //    触球前 0.22s 内按锁定权重淡出：触球瞬间拍必须精确压在物理接触点上，
+  //    否则球会"打在空气上"。
+  if (I.tc === null || I.tc > 0.02){
+    const prox = (I.tc !== null) ? clamp(1 - I.tc/0.22, 0, 1) : 0;
+    const wA   = 1 - prox;                       // 远离触球 → 1，触球 → 0
+    B.FistR.getWorldPosition(_cP);
+    const gUpW = vnorm(vsub(gT, wT));            // 拍柄方向（腕 → 握把）
+    const gpNew = [_cP.x + gUpW[0]*0.028, _cP.y + gUpW[1]*0.028, _cP.z + gUpW[2]*0.028];
+    const off2 = vmul(vsub(gpNew, gT), wA);
+    if (vlen(off2) > 1e-4){
+      const Sg2 = PAD_GEO[I.style] || PAD_GEO.penhold;
+      J.grip = vadd(gT, off2);
+      // 拍中心 =（锚定后的）握把点 + 沿拍柄方向 gripD 重建 —— 不能用 I.pos 平移：
+      // gT 已含可达球面回拉量而 I.pos 没有，两者相加会把拍推离拳头 0.3m+
+      J.posAbs = vadd(vadd(gT, vmul(gUpW, Sg2.gripD)), off2);
+      aimBoneAt(B.FistR, A.FistR, _cV[2].set(J.grip[0], J.grip[1], J.grip[2]));  // 手掌对齐拍柄
+    }
+  }
   // ⑤ 非持拍手臂（平衡臂）
   B.UpperArmL.getWorldPosition(_cP);
   const shLw = [_cP.x, _cP.y, _cP.z];
@@ -4506,7 +4573,8 @@ function buildHuman(skin, shirt, shorts, shoe, rightHanded, ghost, letter, start
   // 初始站在自己那一侧（否则开局要直线穿过球台"进场"）
   const z0 = (startZ === undefined ? 1.9 : startZ);
   P.stance = [0, z0];
-  P.feet = [ {p:[ 0.16,0, z0], move:null}, {p:[-0.16,0, z0], move:null} ];
+  P.want   = [0, z0];                 // "想去哪"的意图站位（moveStance 驱动，含绕开球台）
+  P.feet   = [ {p:[ 0.16,0, z0], move:null}, {p:[-0.16,0, z0], move:null} ];
   // 火柴人各部件：模型加载完成后整体隐藏
   P.stickParts = [P.hips, P.torso, P.head, P.neck,
     P.armU[0],P.armU[1], P.armF[0],P.armF[1], P.hand[0],P.hand[1],
@@ -4517,36 +4585,89 @@ function buildHuman(skin, shirt, shorts, shoe, rightHanded, ghost, letter, start
   return P;
 }
 
-/* 步法：站位移向目标；脚位落后过多时抬脚迈一步（滑动碎步） */
-function stepFeet(P, dt, F, R1){
+/* 步法（真实迈步，不再贴地滑行）：
+   脚"踩住"时必须水平不动（旧写法让它持续贴合站位 ⇒ 整具身体像在平移/滑冰）；
+   落后到 STEP_D 才抬脚迈一步，一步最长 0.36m（不会一步跨 1m 变成瞬移）；
+   双脚都落后到 JUMP_D ⇒ 跳步（双脚同时迈），跟上快速/大幅让位。
+   urg（0~1，球越近越高）：应急迈步 —— 步长加大、跳步阈值降低，
+   保证快速来球时身体赶在触球前到位（否则触球前 0.05s 禁用可达回拉，手拍会分离）。
+   身体重心由脚决定（见 updateHuman：stance = 双脚中心 + 朝意图的引导）⇒ 步子带动身体。 */
+const STEP_D = 0.15, JUMP_D = 0.30;
+function stepFeet(P, dt, F, R1, tgt, urg){
   const goal = [[],[]];
   for (let i=0;i<2;i++){
     const lateral = i===0 ? 0.155 : -0.155;
     const stagger = i===0 ? -0.13 : 0.02;                 // 右手持拍：右脚略后
-    goal[i] = [ P.stance[0] + R1[0]*lateral + F[0]*stagger,
-                P.stance[1] + R1[2]*lateral + F[2]*stagger ];
+    goal[i] = [ tgt[0] + R1[0]*lateral + F[0]*stagger,
+                tgt[1] + R1[2]*lateral + F[2]*stagger ];
   }
-  for (let i=0;i<2;i++){
-    const f = P.feet[i], other = P.feet[1-i];
-    if (f.move){
-      f.move.t += dt/f.move.dur;
-      const u = Math.min(1, f.move.t), e = u*u*(3-2*u);
-      f.p[0] = f.move.from[0] + (f.move.to[0]-f.move.from[0])*e;
-      f.p[2] = f.move.from[2] + (f.move.to[2]-f.move.from[2])*e;
-      f.p[1] = Math.sin(u*Math.PI)*0.05;
-      if (u >= 1){ f.move = null; }
-    } else {
-      const d = Math.hypot(goal[i][0]-f.p[0], goal[i][1]-f.p[2]);
-      if (d > 0.13 && !other.move){ f.move = { t:0, dur:0.16, from:[f.p[0],0,f.p[2]], to:[goal[i][0],0,goal[i][1]] }; }
+  const dist = i => Math.hypot(goal[i][0]-P.feet[i].p[0], goal[i][1]-P.feet[i].p[2]);
+  const d0 = dist(0), d1 = dist(1);
+  const jumpThr  = JUMP_D - 0.10*urg;                     // 应急：跳步更容易触发
+  const jumpStep = 0.45 + 0.15*urg;                       // 应急：跳步步长加大
+  const stepCap  = 0.36 + 0.14*urg;                       // 应急：单步步长加大
+  const bothPlanted = !P.feet[0].move && !P.feet[1].move;
+  // 跳步：双脚都落后很多，或应急期（球快到）只要明显落后就跳 —— 交替单步中心速度
+  // 只有 ~1.2 m/s，快速来球赶不到位（触球前 reach 超限 ⇒ 可达回拉把拍拉离接触点）。
+  // 跳步（双脚同时迈，真实乒乓球"跳步"技术）中心速度 ~3.5 m/s，跟得上让位。
+  const canJump = bothPlanted && d0 > jumpThr && d1 > jumpThr
+               || (bothPlanted && urg > 0.25 && (d0 > 0.22 || d1 > 0.22));
+  if (canJump){
+    for (let i=0;i<2;i++) if (dist(i) > STEP_D) stepFoot(P.feet[i], goal[i], Math.min(dist(i), jumpStep));
+  } else {
+    for (let i=0;i<2;i++){
+      const f = P.feet[i], other = P.feet[1-i];
+      if (f.move) continue;
+      if (other.move) continue;                            // 另一只脚正在迈 ⇒ 等它落地（保证有支撑脚）
+      if (dist(i) > STEP_D) stepFoot(f, goal[i], Math.min(dist(i), stepCap));
     }
   }
+  for (let i=0;i<2;i++){
+    const f = P.feet[i];
+    if (!f.move){ f.p[1] = 0; continue; }                  // 踩住：水平不动、贴地（禁止滑步）
+    f.move.t += dt/f.move.dur;
+    const u = Math.min(1, f.move.t), e = u*u*(3-2*u);
+    f.p[0] = f.move.from[0] + (f.move.to[0]-f.move.from[0])*e;
+    f.p[2] = f.move.from[2] + (f.move.to[2]-f.move.from[2])*e;
+    f.p[1] = Math.sin(u*Math.PI)*0.055;                    // 抬脚高度
+    if (u >= 1){ f.move = null; f.p[1] = 0; }              // 落地踩住
+  }
+}
+/* 起一步：落点 = 朝目标方向前进 stepLen（有上限），抬脚时长随步长 */
+function stepFoot(f, goal, stepLen){
+  const gx = goal[0], gz = goal[1];
+  const d  = Math.hypot(gx-f.p[0], gz-f.p[2]);
+  if (d < 1e-4) return;
+  const ux = (gx-f.p[0])/d, uz = (gz-f.p[2])/d;
+  f.move = { t:0, dur: clamp(0.09 + stepLen*0.12, 0.09, 0.20),
+             from:[f.p[0],0,f.p[2]], to:[f.p[0]+ux*stepLen, 0, f.p[2]+uz*stepLen] };
 }
 
 /* 依据球拍位姿把整个人物摆位 */
 function updateHuman(P, I, dt){
   const F = I.facing, R1 = vnorm(vcross(F,[0,1,0]));
-  moveStance(P.stance, I.stance, I.speed*dt, dt);
-  stepFeet(P, dt, F, R1);
+  // ① 意图站位（含绕开球台）：脚朝这里迈，但身体不直接跳过去
+  moveStance(P.want, I.stance, I.speed*dt, dt);
+  // ② 迈步（真实脚步：踩住的脚不滑动，落后才抬脚迈 / 大幅用跳步）
+  //    urg：球越近应急越强（步长加大、跳步更易触发），保证触球前身体到位
+  const urg = (I.tc !== null) ? clamp(1 - I.tc/0.55, 0, 1) : 0;
+  stepFeet(P, dt, F, R1, P.want, urg);
+  // ③ 身体重心踩在脚上：站位 = 双脚中心 + 朝意图的引导。
+  //    身体不再自己平移，只能被步子带着走 ⇒ 前进/后退是"迈步"而不是"滑行"，
+  //    也不会出现上半身跑到脚前面（不协调）。
+  //    引导上限随 urg 放大（触球前 0.26→0.46m）：球快到而脚还没到位时身体
+  //    先"弓步前探"去够球 —— 真实击球里重心本来就压向前，腿仍由 IK 兜底。
+  {
+    const a = P.feet[0].p, b = P.feet[1].p;
+    const fx = (a[0]+b[0])*0.5, fz = (a[2]+b[2])*0.5;
+    const gx = P.want[0]-fx, gz = P.want[1]-fz;
+    const GL = Math.hypot(gx, gz);
+    if (GL > 1e-4){
+      const leadCap = 0.26 + 0.30*urg;
+      const lead = Math.min(leadCap, GL);   // 全额引导：触球前身体完全到位（不再打 0.65 折）
+      P.stance[0] = fx + gx/GL*lead; P.stance[1] = fz + gz/GL*lead;
+    } else { P.stance[0] = fx; P.stance[1] = fz; }
+  }
 
   // 球拍局部坐标系：法线 n = local +Z，拍柄方向 = local +Y
   const nV = vnorm(I.n);
@@ -4558,8 +4679,8 @@ function updateHuman(P, I, dt){
   // 握把 / 手腕：沿"拍柄方向"（upV 绕法线转过握持 roll），直拍柄短、横拍柄长
   const Sg  = PAD_GEO[I.style] || PAD_GEO.penhold;
   const gUp = paddleGripUp(nVvis, I.style, I.extraRoll || 0, { pose: I.pose, headDir: I.headDir, userRoll: I.userRoll || 0 });
-  const grip  = vadd(I.pos, vmul(gUp, -Sg.gripD));
-  const wrist = vadd(I.pos, vmul(gUp, -(Sg.gripD + 0.047)));
+  let grip  = vadd(I.pos, vmul(gUp, -Sg.gripD));
+  let wrist = vadd(I.pos, vmul(gUp, -(Sg.gripD + 0.047)));
 
   // 重心前压 / 上步：让手臂够得到（迭代拉近距离）
   // 低球要深蹲（肩必须跟着降下来），否则肩—拍的垂直差 0.6m 远超臂长 0.55m
@@ -4605,6 +4726,27 @@ function updateHuman(P, I, dt){
     }
   }
   if (I.who) VIS['reach'+I.who] = +vlen(vsub(wrist, shR)).toFixed(3);   // 调试：肩→腕（>0.55 = 手臂被拉长）
+
+  // ── 手拍分离修复：蒙皮模型的手臂不会像火柴人骨那样被拉长（aimBoneAt 只定向不定位，
+  //    骨长固定），拍位一旦超出臂长（随挥段最明显，实测拳头↔握把最大 0.37m），
+  //    模型拳头就和球拍脱开。这里把 腕/握把/拍位 整体沿肩→腕方向拉回可达球面，
+  //    火柴人的拉伸骨也随之不再被拉成橡皮筋。
+  //    触球瞬间（tc≤0.05）不收——那时拍必须精确压在物理接触点上，否则球会"打在空气上"。
+  let posAdj = null;
+  {
+    // 与 poseCharModel 同一份平滑淡出（tc>0.15 全量 → tc≤0.02 归零），避免拍位瞬跳
+    const clampW = (I.tc !== null) ? clamp((I.tc - 0.02)/0.13, 0, 1) : 1;
+    if (clampW > 0.001){
+      const dW = vlen(vsub(wrist, shR));
+      const REACH = 0.55;                          // 上臂 0.295 + 前臂 0.255
+      if (dW > REACH){
+        const off = vmul(vsub(wrist, shR), (1 - REACH/dW) * clampW);   // 需要往回收的位移
+        wrist = vsub(wrist, off);
+        grip  = vsub(grip,  off);
+        posAdj = vsub(I.pos, off);                 // 拍位同步平移，保持 拍柄/拍面 相对位姿
+      }
+    }
+  }
 
   // 头部：沿躯干轴向上（躯干前倾时头跟着前倾，不再脱节），脖子填满衔接处
   const uAx = vnorm([chest[0]-hip[0], chest[1]-hip[1], chest[2]-hip[2]]);
@@ -4695,7 +4837,7 @@ function updateHuman(P, I, dt){
 
   const out = { hip:hipMid, head:headP, chest, shR, elbow, wrist, grip,
                 shL, elbowL, lHand, ankle:ankleLst, pollK:pollKlst,
-                pollA:pollA, pollL, headQ:P.head.quaternion };
+                pollA:pollA, pollL, headQ:P.head.quaternion, posAdj };
   // 人物模型：片段驱动躯干 + 物理 IK 驱动四肢
   if (P.mdl) poseCharModel(P, out, I, dt);
   return out;
