@@ -4155,8 +4155,15 @@ function capEmblemTex(letter, bg){
      · 物理 rig → 持拍手臂、双腿、头：保证击球点与拍面精确
    躯干一动肩关节跟着动，手臂 IK 再追物理目标 ⇒ 自然形成"腰腿带手臂"。
    ══════════════════════════════════════════════════════════════════ */
-const CHAR_FILES = ['./models/quaternius-soldier-tt.glb',      // 玩家：男（自带两段乒乓球片段）
-                    './models/quaternius-casual-female.glb'];  // 对手：女
+/* 双方用同款模型：己方与对手都加载 quaternius-soldier-tt（自带 Forehand_Loop /
+   Penhold_Backhand_Loop 两段乒乓球片段）—— 旧版对手用 casual-female，它没有这两段
+   片段 ⇒ 对手只能靠物理 IK 摆姿势，动作与己方不一致。
+   同一个 URL 写两遍是**故意**的：loadCharLib 对每个 URL 各跑一次 loadAsync，
+   会解析出两个彼此独立的场景实例。不能让两人共用 CHAR_LIB[0] —— attachCharModel
+   是 ctn.add(lib.src)（不克隆），同一 Object3D 只能有一个父节点，
+   第二个 add 会把模型从己方容器里抢走（表现为己方人物消失）。 */
+const CHAR_FILES = ['./models/quaternius-soldier-tt.glb',      // 己方（半透明 ghost）
+                    './models/quaternius-soldier-tt.glb'];     // 对手：与己方同款
 /* 片段内"击球瞬间"的时间点（由手部轨迹的峰值定出） */
 const CLIP_CONTACT = { Forehand_Loop:0.75, Penhold_Backhand_Loop:0.72 };
 /* 片段内"待机准备"的时间点 */
