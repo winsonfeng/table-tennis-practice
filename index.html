@@ -1114,14 +1114,15 @@ const fill = new THREE.DirectionalLight(0xffd9e8, 0.42); fill.position.set(-3,2,
 /* 地面：粉紫派对地坪（外圈深粉 → 内场浅粉垫） */
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(26,26), toonMat(0xee9fbb));
 floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
-/* 内场浅粉垫：贴图带大字标（参考图地面上的 "GOO... OPEN" 白字） */
+/* 内场浅粉垫：贴图带大字标（参考图地面上的 "GOO... OPEN" 白字）。
+   尺寸收到 5.9×7.4（半对角 4.75m），整块落在护栏环(r=4.85)之内 */
 const matTex = (()=>{
   const cv = document.createElement('canvas'); cv.width = cv.height = 1024;
   const g = cv.getContext('2d');
   g.fillStyle = '#f7c3d4'; g.fillRect(0,0,1024,1024);
   // 大号斜排白字（透明度低，像地贴）
   g.save(); g.translate(512,512); g.rotate(-Math.PI/7);
-  g.font = '900 150px -apple-system,"PingFang SC",sans-serif';
+  g.font = '900 130px -apple-system,"PingFang SC",sans-serif';
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillStyle = 'rgba(255,255,255,.42)';
   g.fillText('GO! PING PONG', 0, -60);
@@ -1129,14 +1130,14 @@ const matTex = (()=>{
   g.restore();
   // 四角装饰圆点
   g.fillStyle = 'rgba(255,255,255,.30)';
-  for (const [cx,cy,r] of [[120,120,46],[904,120,46],[120,904,46],[904,904,46]]){
+  for (const [cx,cy,r] of [[110,110,44],[914,110,44],[110,914,44],[914,914,44]]){
     g.beginPath(); g.arc(cx,cy,r,0,Math.PI*2); g.fill();
   }
   const t = new THREE.CanvasTexture(cv);
   t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
 })();
-const courtMat = new THREE.Mesh(new THREE.PlaneGeometry(8.6, 10.6),
+const courtMat = new THREE.Mesh(new THREE.PlaneGeometry(5.9, 7.4),
   new THREE.MeshToonMaterial({ color:0xffffff, map:matTex, gradientMap:toonGradient }));
 courtMat.rotation.x = -Math.PI/2; courtMat.position.y = 0.006; courtMat.receiveShadow = true;
 scene.add(courtMat);
@@ -1240,6 +1241,89 @@ seam2.rotation.y = Math.PI/2; ballG.add(seam2);
 const shadow = new THREE.Mesh(new THREE.CircleGeometry(PH.r*1.55, 20),
   new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.3, depthWrite:false }));
 shadow.rotation.x = -Math.PI/2; scene.add(shadow);
+
+/* ════ 环形看台 + 观众（参考图：奶油护栏 + 橙/粉三层阶梯 + 一排小动物观众）═══ */
+const STANDS = [
+  { r:5.30, y:0.30, c:0xf2955c, n:30 },   // 第一层（最低，紧贴护栏）
+  { r:6.20, y:0.66, c:0xffd9a8, n:32 },   // 第二层
+  { r:7.10, y:1.02, c:0xf291ae, n:34 },   // 第三层
+];
+{
+  const g = new THREE.Group(); scene.add(g);
+  // 护栏：奶油色矮墙 + 粉色顶杆 + 立柱（把球场和看台隔开）
+  const BAR = 4.85;
+  const panel = new THREE.Mesh(new THREE.CylinderGeometry(BAR, BAR, 0.42, 72, 1, true),
+    toonMat(0xfff1dc, { side:THREE.DoubleSide }));
+  panel.position.y = 0.21; g.add(panel);
+  const rail = new THREE.Mesh(new THREE.TorusGeometry(BAR, 0.045, 8, 72),
+    toonMat(0xf291ae));
+  rail.rotation.x = -Math.PI/2; rail.position.y = 0.44; g.add(rail);
+  const postGeo = new THREE.BoxGeometry(0.055, 0.46, 0.055);
+  const posts = new THREE.InstancedMesh(postGeo, toonMat(0xf291ae), 28);
+  const _pm = new THREE.Matrix4(), _pq = new THREE.Quaternion(), _ps = new THREE.Vector3(1,1,1);
+  for (let i=0;i<28;i++){
+    const a = i/28*Math.PI*2;
+    _pm.compose(new THREE.Vector3(Math.cos(a)*BAR, 0.23, Math.sin(a)*BAR), _pq, _ps);
+    posts.setMatrixAt(i, _pm);
+  }
+  posts.instanceMatrix.needsUpdate = true; g.add(posts);
+  // 阶梯：踏步面（圆环）+ 前墙（敞口圆柱，内侧面朝球场）
+  for (let i=0;i<STANDS.length;i++){
+    const s = STANDS[i];
+    const tread = new THREE.Mesh(new THREE.RingGeometry(s.r-0.45, s.r+0.45, 72), toonMat(s.c));
+    tread.rotation.x = -Math.PI/2; tread.position.y = s.y; tread.receiveShadow = true; g.add(tread);
+    const y0 = i ? STANDS[i-1].y : 0, h = s.y - y0 + 0.07;
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(s.r+0.45, s.r+0.45, h, 72, 1, true),
+      toonMat(s.c, { side:THREE.DoubleSide }));
+    wall.position.y = y0 + h/2; g.add(wall);
+  }
+}
+/* 观众：InstancedMesh 双网格（身体 + 头），每帧按各自相位轻微上下晃动。
+   Q 版比例（总高 ~0.42m）：远处也能看清（参考图里观众是显眼的一排小动物） */
+const AUD = (()=>{
+  const PAL = [0xa9744f, 0xf08a3c, 0xfff0f5, 0xe8e2d8, 0x8fbf6a, 0x7cc8f7, 0xf2a9c0, 0xc9a0dc];
+  const bodyGeo = new THREE.SphereGeometry(0.19, 10, 8);
+  const headGeo = new THREE.SphereGeometry(0.125, 10, 8);
+  const bodyMat = new THREE.MeshToonMaterial({ gradientMap:toonGradient });
+  const headMat = new THREE.MeshToonMaterial({ gradientMap:toonGradient });
+  const N = STANDS.reduce((a,s)=>a+s.n, 0);
+  const bodies = new THREE.InstancedMesh(bodyGeo, bodyMat, N);
+  const heads  = new THREE.InstancedMesh(headGeo, headMat, N);
+  bodies.frustumCulled = heads.frustumCulled = false;
+  scene.add(bodies); scene.add(heads);
+  const list = [];
+  let idx = 0;
+  const _c = new THREE.Color();
+  for (const s of STANDS){
+    for (let i=0;i<s.n;i++){
+      const a = (i + (idx%2?0.5:0)) / s.n * Math.PI*2 + (idx*0.137);
+      const rr = s.r + (Math.random()-0.5)*0.45;
+      const col = PAL[Math.floor(Math.random()*PAL.length)];
+      list.push({ x:Math.cos(a)*rr, z:Math.sin(a)*rr, y:s.y+0.095, rot:Math.atan2(-Math.cos(a), -Math.sin(a)),
+                  ph:Math.random()*6.28, col });
+      _c.setHex(col);
+      bodies.setColorAt(idx, _c); heads.setColorAt(idx, _c);
+      idx++;
+    }
+  }
+  bodies.instanceColor.needsUpdate = true; heads.instanceColor.needsUpdate = true;
+  const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v = new THREE.Vector3(),
+        _s = new THREE.Vector3(), _y = new THREE.Vector3(0,1,0);
+  function update(t){
+    for (let i=0;i<list.length;i++){
+      const a = list[i];
+      const bob = Math.sin(t*2.3 + a.ph)*0.022;
+      _q.setFromAxisAngle(_y, a.rot);
+      _v.set(a.x, a.y + bob, a.z); _s.set(1, 0.92 + bob*1.4, 1);
+      _m.compose(_v, _q, _s); bodies.setMatrixAt(i, _m);
+      _v.y = a.y + 0.235 + bob*1.3; _s.set(1, 1, 1);
+      _m.compose(_v, _q, _s); heads.setMatrixAt(i, _m);
+    }
+    bodies.instanceMatrix.needsUpdate = true;
+    heads.instanceMatrix.needsUpdate = true;
+  }
+  return { update, count:N };
+})();
 
 /* ════ 派对风击球特效 ══════════════════════════════════════════════
    ① 球光尾：additive 渐变细带（跟随球，速度快时更亮更长）
@@ -5428,6 +5512,7 @@ function loop(now){
   if (!(G.frz && G.frz.active)){ aiThink(dt); physics(dt); }
   updateVisual(dt);
   FX.update(dt);                             // 派对特效：球光尾 / 挥拍彩带 / 爆点推进
+  AUD.update(GT);                            // 看台观众上下晃动（游戏时钟 ⇒ 慢放时同步变慢）
 
   /* P1 悬浮标签：玩家头顶 → 屏幕投影（定格微距时隐藏） */
   {
