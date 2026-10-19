@@ -3072,20 +3072,26 @@ function updateCharacters(dt){
       // （用 cp 会与已锁定到物理拍的视觉位置突跳；用 vpos 完全连续）
       const hPos = (relFromHit && pad.hitPos && pad.hitPos.length) ? pad.hitPos : (pad.vpos || cp);
       const nH  = vnorm(pad.hitN && pad.hitN.length ? pad.hitN : nv);
-      // 随挥加大（0.36 前 / 0.46 横向 / 0.38 上）：正手收拍到左肩上方，
+      // 随挥加大（0.36 前 / 0.34 横向 / 0.30 上）：正手收拍到左肩**侧前**上方，
       // 完成「右下→左上」的完整弧线；反手镜像向右上。
+      // 旧值横向 0.46 / 上 0.38 / ftUp 1.60 会把收拍终点甩到脑后 —— 手臂 IK 为了
+      // 够到头后目标，肘部反关节、前臂绕过脖子（用户截图「身体都扭曲了」）。
+      // 现收到肩侧前上（不过头顶），弧线意图保留且不穿头。
       // swingG：勒布伦短促发力、拍头自然弹回 ⇒ 随挥幅度收小。
       const Tsw = (T.swing || 1) * styleNow().swingG;
-      const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.36*Tsw)), vmul(R1, -0.46*Tsw*sw));
-      ft[1] += 0.38*Tsw;
-      // 拉球 / 高调：随挥收到眉眼高度（"右膝→左眼"弧线的终点），否则弧线半途就断了
-      if (T.ftUp) ft[1] = Math.min(1.60, ft[1] + T.ftUp);
+      const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.36*Tsw)), vmul(R1, -0.34*Tsw*sw));
+      ft[1] += 0.30*Tsw;
+      // 拉球 / 高调：随挥收到下巴高度（"右膝→下颌"弧线的终点；超过头顶必绕头）
+      if (T.ftUp) ft[1] = Math.min(1.46, ft[1] + T.ftUp);
       // 随挥 0.38s + 复位 0.26s ⇒ rel≈0.64 就回到预备位。
       // 旧值（0.55 + 0.50 = 1.05s）来不及：对手来球在 rel≈0.6 就到了，
       // 于是「归位」和「引拍」挤在一起，1m 的归位位移把 7cm 的引拍完全淹没，
       // 观感就是球拍一路直奔触球点（推挡）。
       // recover < 1（勒布伦 0.62）⇒ 还原更快，衔接 ~0.3s/板。
-      const rc = styleNow().recover, tFin = 0.38*rc, tBak = 0.26*rc;
+      // tBak 0.26→0.38：退台深球时 idle−ft 距离 ~1m，旧复位时长 0.16s ⇒ 峰值速度
+      // ~9m/s，观感就是击球后「抽一下」（实测 spike 全部落在 rel≈0.36 复位段）。
+      // 放缓到 0.235s 把峰值速度压到 ~6m/s；衔接由引拍坡道（fromPos）兜底，不受影响。
+      const rc = styleNow().recover, tFin = 0.38*rc, tBak = 0.38*rc;
       const g  = Math.pow(clamp(rel/tFin,0,1), 0.55);      // 随挥展开
       const bk = clamp((rel-tFin)/tBak, 0, 1);             // 复位收回
       finG = g; bkG = bk;
@@ -4401,6 +4407,26 @@ function poseCharModel(P, J, I, dt){
       J.posAdj = vsub(I.pos, off);      // 拍网格 / 黄环同步平移（updateCharacters 应用 anchor.posAdj）
     }
   }
+  // ── 头部避让（兜底）：随挥收拍把手腕/握把目标甩到头旁甚至脑后时，
+  //    两骨 IK 会解出反关节（肘顶到头上、前臂绕过脖子）→ 观感「身体都扭曲了」。
+  //    把腕/握把目标推出头部球体（r=0.16）外：沿「目标-头心」方向弹出。
+  //    在可达球面回拉之后执行，随后拳心锚定/拍位重建（posAbs）都基于新 gT/wT，
+  //    手-拍对齐不受影响。
+  {
+    B.Head.getWorldPosition(_cP);
+    const hc = [_cP.x, _cP.y, _cP.z];
+    const dv = vsub(wT, hc);
+    const dl = vlen(dv);
+    const HR = 0.16;
+    if (dl < HR){
+      const fc = I.facing || [0,0,-1];
+      const dir = dl > 1e-4 ? vmul(dv, 1/dl) : vnorm([fc[0], 0.35, fc[2]]);
+      const off = vmul(dir, HR - dl);
+      wT = vadd(wT, off); gT = vadd(gT, off);
+      J.wrist = wT; J.grip = gT;
+      if (J.posAdj) J.posAdj = vadd(J.posAdj, off);   // 拍网格同步平移，保持手-拍对齐
+    }
+  }
   const elb = ik2Reach(shW, wT, M.lib.arm*s, M.lib.fore*s, J.pollA);
   aimBoneAt(B.UpperArmR, A.UpperArmR, _cV[0].set(elb[0],elb[1],elb[2]));
   aimBoneAt(B.LowerArmR, A.LowerArmR, _cV[1].set(wT[0],wT[1],wT[2]));
@@ -4796,6 +4822,19 @@ function updateHuman(P, I, dt){
     _hq2.setFromAxisAngle(VpX, -pitch);      // 绕 X 正旋转让 +Z 朝下，故取负号抬头
     _hq1.multiply(_hq2);
     P.head.quaternion.copy(_hq1);
+  }
+
+  // ── 头部避让（火柴人同款）：手腕目标不得进入头部球体，防止肘部反关节绕头扭曲
+  {
+    const dv = vsub(wrist, headP);
+    const dl = vlen(dv);
+    const HR = 0.16;
+    if (dl < HR){
+      const dir = dl > 1e-4 ? vmul(dv, 1/dl) : vnorm(vadd(Fp, [0, 0.35, 0]));
+      const off = vmul(dir, HR - dl);
+      wrist = vadd(wrist, off);
+      grip  = vadd(grip,  off);
+    }
   }
 
   // 持拍手（右手或左手）
