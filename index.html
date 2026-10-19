@@ -2240,20 +2240,36 @@ function manualPlan(c, P){
   return { s:0, r, loft:m.loft, yaw:m.yaw, drive, drive0:drive, n:r.n, vp:r.vp,
            st:r.st, ev:r.ev, info:r.info, compensated:false, faceOn:true, manual:true };
 }
+/* ── 落点「安全余量」──────────────────────────────────────────────
+   落点误差是双向的：打长了 = 出界丢分，打短了 = 仍在台上、回合继续。
+   所以解算的「瞄准点」必须离端线/边线留一段余量，不能真的瞄在底线上。
+   实测（2026-10-19）：底线左/右 的落点中位压到 -1.34、最深 -1.36（端线 -1.37），
+   余量仅几厘米 ⇒ 频繁「出界未落台」，平均每回合仅 18 板（中台中 37.5 板）。
+   只影响解算瞄准点；用户选的落点仍用于显示（黄环）与落点误差评分。 */
+const AIM_MARGIN_Z = 0.18;                 // 距端线（端线在 |z| = T.halfL = 1.37）
+const AIM_MARGIN_X = 0.10;                 // 距边线（边线在 |x| = T.halfW = 0.7625）
+function safeAim(t){
+  if (!t) return t;
+  const zl = T.halfL - AIM_MARGIN_Z, xl = T.halfW - AIM_MARGIN_X;
+  return [ clamp(t[0], -xl, xl),
+           t[1] < 0 ? clamp(t[1], -zl, 0) : clamp(t[1], 0, zl) ];
+}
+
 function computePlan(){
   if (!G.live || G.last === 'p') return;
   const P = paramObj();
-  let cd = findContact(G.st, -1, G.target, P);
+  let cd = findContact(G.st, -1, safeAim(G.target), P);
   if (!cd){ G.plan = null; return; }
   const stX0 = (VIS.stance && isFinite(VIS.stance[0])) ? VIS.stance[0] : -0.10;
   let ss = strokeSide(cd.c[0], 'p', stX0, cd.t);
   let bh = ss.bh;
-  let target = G.target.slice();
+  let target = safeAim(G.target);
   // ── 对拉期间：玩家落点也加深（压底线，配合加质量）
   if (G.counterLoop && G.counterLoop.active && G.auto){
     const boardsAfterWarmup = Math.max(0, G.counterLoop.hits - 2);
     const depthPush = clamp(boardsAfterWarmup * 0.05, 0, 0.25);
     target[1] = clamp(target[1] - depthPush, -1.37, -0.55);
+    target = safeAim(target);   // 加深后再收一次余量：绝不能真的瞄在端线上
   }
   // ── 接发球阶段：先定手段，再按手段取默认落点（摆短 / 拧长 / 挑斜线 / 高调顶底线）
   if (G.auto && isReceive()){
@@ -2707,7 +2723,7 @@ function frzNow(){
   }
   if (G.phase === 'ready'){ tip('请先按空格发球，或等对手来球'); return; }
   if (!G.live){ tip('当前没有可定格的击球点'); return; }
-  const cd = findContact(G.st, -1, G.target, paramObj());   // 现算一个合法接触点
+  const cd = findContact(G.st, -1, safeAim(G.target), paramObj());   // 现算一个合法接触点
   if (cd){
     G.P.timing = 0; if (UI.s_time) UI.s_time.value = 0; syncLabels();
     frzEnter(cd.c, cd.sol ? cd.sol.r.info : null);
@@ -2736,7 +2752,7 @@ function frzResolve(){
   const stX0 = (VIS.stance && isFinite(VIS.stance[0])) ? VIS.stance[0] : 0.30;
   const opt = techOpt(P, c, (c[0] - stX0) < -0.06, c);
   const sol = G.auto
-    ? faceAdjust(c, solveShot(c, -1, G.target, P, G.comp), G.target, P, G.comp, opt)
+    ? faceAdjust(c, solveShot(c, -1, safeAim(G.target), P, G.comp), safeAim(G.target), P, G.comp, opt)
     : manualPlan(c, P);
   f.tech = opt.tech;
   f.sol = sol;
@@ -2763,7 +2779,7 @@ function frzAuto(){
     if (!contactOK(c)) return null;
     const P = { power:pw, spin:sp, side:base.side, timing:0,
                 hp:base.hp, mu:base.mu, grip:base.grip, rest:base.rest };
-    const sol = solveShot(c, -1, G.target, P, false);
+    const sol = solveShot(c, -1, safeAim(G.target), P, false);
     if (!sol || !sol.r.ev.landings.length) return null;
     const ev = sol.r.ev, L = ev.landings[0];
     if (sgn(L[1]) !== -1) return null;                       // 必须落到对方半台
