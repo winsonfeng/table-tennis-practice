@@ -23,26 +23,69 @@
   .panel::-webkit-scrollbar{width:9px}
   .panel::-webkit-scrollbar-thumb{background:#f0b95f;border-radius:6px;border:2px solid var(--ink)}
 
-  /* ── 顶栏 · 卡通计分板 ── */
-  #top{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:16px;
-    padding:8px 20px;z-index:5;white-space:nowrap;
-    background:linear-gradient(180deg,#fffdf6,#ffeccb);border:3px solid var(--ink);border-radius:22px;
-    box-shadow:0 5px 0 rgba(47,35,20,.55), 0 12px 26px rgba(20,40,60,.25)}
-  #top .t{font-size:15px;font-weight:800;letter-spacing:.5px;color:var(--txt)}
-  #top .t small{display:block;font-size:10px;color:var(--dim);font-weight:600;letter-spacing:0}
-  #sc{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums}
-  #sc .pl{display:flex;align-items:center;gap:7px;padding:3px 11px;border-radius:14px;font-weight:900;border:2px solid transparent}
-  #sc .pl.you{background:rgba(59,130,246,.16);color:#1f6fd6;border-color:rgba(59,130,246,.45)}
-  #sc .pl.ai{background:rgba(239,68,68,.15);color:#e0453a;border-color:rgba(239,68,68,.42);flex-direction:row-reverse}
-  #sc .pl .nm{font-size:13px;font-weight:900;letter-spacing:2px}
-  #sc .pl b{font-size:27px;line-height:1;font-weight:900;min-width:24px;text-align:center;text-shadow:0 1px 0 rgba(255,255,255,.6)}
-  #sc .vs{font-size:18px;font-weight:900;color:var(--ink);opacity:.4;padding:0 1px}
+  /* ── 派对风计分卡（左上）：头像 + 血条 + 热血 pill + 大比分气泡 ── */
+  #top{position:fixed;top:12px;left:14px;z-index:5;display:flex;flex-direction:column;gap:9px}
+  .pcard{display:flex;align-items:center;gap:10px;padding:7px 12px 7px 8px;border-radius:999px;width:max-content;
+    background:rgba(255,255,255,.93);border:3px solid var(--ink);
+    box-shadow:0 4px 0 rgba(20,22,31,.35), 0 10px 22px rgba(120,40,70,.22)}
+  .pcard .avs{display:flex;align-items:center}
+  .av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;
+    background:#ffe3ee;border:3px solid var(--ink);box-shadow:0 2px 0 rgba(20,22,31,.35);margin-left:-9px;position:relative}
+  .pcard .avs .av:first-child{margin-left:0;z-index:2}
+  .pinfo{display:flex;flex-direction:column;gap:3px}
+  .pname{font-size:11px;font-weight:900;color:#8a5570;letter-spacing:2px}
+  .hpbar{height:10px;width:118px;border-radius:999px;background:#f6dbe4;border:2px solid var(--ink);overflow:hidden}
+  .hpbar i{display:block;height:100%;width:55%;border-radius:999px;
+    background:linear-gradient(90deg,#ffd23f,#ff7a2f);transition:width .3s}
+  .hotpill{font-size:10.5px;font-weight:900;color:#8a4a5e;background:#fff0f5;border:2px solid var(--ink);
+    border-radius:999px;padding:1px 9px;width:max-content;white-space:nowrap}
+  .hotpill b{color:#ff4d6d}
+  .bubble{min-width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:26px;font-weight:900;color:#fff;font-style:normal;
+    background:linear-gradient(180deg,#ff92b4,#ff4d88);border:3px solid var(--ink);
+    box-shadow:0 4px 0 rgba(20,22,31,.35);text-shadow:0 2px 0 rgba(150,20,60,.45);font-variant-numeric:tabular-nums}
+  .pcard.ai .bubble{background:linear-gradient(180deg,#8fd0ff,#3b8fe0);text-shadow:0 2px 0 rgba(20,80,150,.45)}
+  .pcard.ai{flex-direction:row-reverse;padding:7px 8px 7px 12px}
+
+  /* ── 顶部中央计时 ── */
+  #clockChip{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:5;pointer-events:none;
+    display:flex;align-items:center;gap:7px;font-size:21px;font-weight:900;color:#fff;letter-spacing:1px;
+    background:rgba(20,22,31,.80);border-radius:999px;padding:5px 20px;font-variant-numeric:tabular-nums;
+    box-shadow:0 4px 0 rgba(20,22,31,.35)}
+  #clockChip .dot{width:8px;height:8px;border-radius:50%;background:#ffcf3f}
+
+  /* ── 右上连击徽章：与顶部计时同行，避免被技术链路条盖住（用户截图反馈遮挡） ── */
+  #combo{position:fixed;top:15px;right:18px;z-index:6;text-align:center;pointer-events:none;
+    opacity:0;transform:scale(.55) rotate(-6deg);transition:.18s cubic-bezier(.34,1.56,.64,1)}
+  #combo.show{opacity:1;transform:scale(1) rotate(0)}
+  #combo b{display:block;font-size:60px;line-height:.92;font-weight:900;color:#ffcf3f;font-style:italic;
+    text-shadow:3px 3px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink), 0 7px 0 rgba(20,22,31,.30)}
+  #combo span{display:inline-block;margin-top:4px;font-size:14px;font-weight:900;color:#fff;
+    background:linear-gradient(180deg,#ff92b4,#ff4d88);border:2px solid var(--ink);border-radius:999px;padding:2px 12px;
+    box-shadow:0 3px 0 rgba(20,22,31,.35)}
+
+  /* ── P1 悬浮标签（跟随玩家头顶） ── */
+  #p1tag{position:fixed;z-index:4;pointer-events:none;display:none;transform:translate(-50%,-130%);
+    background:#fff;border:2px solid var(--ink);border-radius:10px;padding:0 9px;
+    font-size:12px;font-weight:900;color:#2f6fd6;letter-spacing:1px;box-shadow:0 2px 0 rgba(20,22,31,.3)}
+  #p1tag::after{content:'';position:absolute;left:50%;bottom:-11px;transform:translateX(-50%);
+    border:6px solid transparent;border-top-color:#fff}
+
+  /* ── 左下手感胶囊 ── */
+  #vibe{position:fixed;left:14px;bottom:14px;z-index:5;display:flex;align-items:center;gap:8px;
+    background:rgba(255,255,255,.93);border:3px solid var(--ink);border-radius:999px;padding:6px 15px;
+    font-size:12.5px;font-weight:900;color:#4a3623;box-shadow:0 4px 0 rgba(20,22,31,.35)}
+  #vibe .duck{font-size:17px}
+  #vibe b{color:#ff7a2f;font-weight:900}
+
   #rv{display:flex;align-items:center;gap:4px;font-size:11px;color:#7a6544;
     background:#fff3dd;border:2px solid #e3c9a3;border-radius:999px;padding:3px 11px;font-weight:800;margin-left:4px}
   #rv b{color:#b8560f;font-size:14px;font-weight:900}
 
-  #left{top:88px;left:12px;width:274px;max-height:calc(100vh - 230px);overflow-y:auto;z-index:5}
-  #right{top:88px;right:12px;width:300px;max-height:calc(100vh - 112px);overflow-y:auto;z-index:5}
+  /* 看板下移到玩家卡下方：左上是两张玩家卡（#top，占 ~12px~150px），
+     旧值 top:88 会让收起胶囊压在第二张（AI）卡上（用户截图反馈遮挡） */
+  #left{top:170px;left:12px;width:274px;max-height:calc(100vh - 300px);overflow-y:auto;z-index:5}
+  #right{top:170px;right:12px;width:300px;max-height:calc(100vh - 300px);overflow-y:auto;z-index:5}
 
   /* ── 看板收起 / 展开 ──
      收起态：面板缩成小胶囊，只留开关按钮（隐藏其余子元素，不改 HTML 结构） */
@@ -128,19 +171,10 @@
   .note b{color:#b8560f}
   .warn{color:#e0342a}
 
-  /* ── 底部时机条 ── */
-  #bot{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:5;padding:10px 16px;min-width:400px}
-  #bot .lab{display:flex;justify-content:space-between;font-size:10.5px;color:#7a6544;font-weight:900;margin-bottom:6px}
-  #tb{position:relative;height:17px;background:#f7e7ca;border:2px solid var(--ink);border-radius:999px;overflow:hidden}
-  #tbz{position:absolute;left:50%;top:0;bottom:0;width:16%;transform:translateX(-50%);
-    background:rgba(63,174,68,.38);border-left:2px solid #2f9e34;border-right:2px solid #2f9e34}
-  #tbp{position:absolute;top:-2px;width:7px;height:21px;background:#fff;border:2px solid var(--ink);
-    border-radius:999px;left:100%}
-  #tbp.go{background:#43d94f}
-  #tip{position:fixed;bottom:104px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:800;color:#fff;
-    text-align:center;z-index:4;pointer-events:none;background:rgba(47,35,20,.84);border:2px solid #14100a;
-    border-radius:999px;padding:5px 14px;box-shadow:0 4px 0 rgba(20,16,10,.40)}
-  #tip b{color:#ffd34d}
+  #tip{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);font-size:13px;font-weight:900;color:#4a3623;
+    text-align:center;z-index:4;pointer-events:none;background:rgba(255,255,255,.94);border:3px solid var(--ink);
+    border-radius:999px;padding:7px 22px;box-shadow:0 4px 0 rgba(20,22,31,.35)}
+  #tip b{color:#ff7a2f}
 
   /* ── 定格提示 ── */
   #frzbar{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:12;pointer-events:none;
@@ -153,9 +187,10 @@
   @keyframes bl{0%,100%{opacity:1}50%{opacity:.25}}
   #frzbar em{font-style:normal;font-weight:800;color:rgba(0,0,0,.55);font-size:11.5px}
 
-  /* ── 技术名称链路条：己方/对手分色 ── */
-  .chainbar{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:11;pointer-events:none;
-    display:flex;align-items:center;gap:7px;max-width:92vw;padding:8px 16px;border-radius:999px;
+  /* ── 技术名称链路条：己方/对手分色。收窄到两侧看板之间 + 层级降到看板之下，
+     避免展开看板时互相遮挡（用户截图反馈连击徽章被它盖住） ── */
+  .chainbar{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:4;pointer-events:none;
+    display:flex;align-items:center;gap:7px;max-width:min(640px,88vw);padding:8px 16px;border-radius:999px;
     font-size:13px;font-weight:900;background:linear-gradient(180deg,#fffdf6,#ffeccb);border:3px solid var(--ink);
     box-shadow:0 5px 0 rgba(47,35,20,.5), 0 10px 22px rgba(20,40,60,.28);flex-wrap:wrap;justify-content:center}
   .chainbar .lbl{color:#fff;font-weight:900;font-size:10.5px;letter-spacing:1px;
@@ -165,13 +200,21 @@
   .chainbar .ck.a{background:#c6f0f7;color:#0b6f80}          /* 对手（AI）技术 */
   .chainbar .arrow{color:#2f2314;margin:0 1px;font-weight:900}
 
-  #toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.9);z-index:20;
-    text-align:center;opacity:0;pointer-events:none;transition:.28s}
+  /* ── 事件大字（出界 / 得分 / 连击…）：白描边 + 得分 pill ── */
+  #toast{position:fixed;top:42%;left:50%;transform:translate(-50%,-50%) scale(.86);z-index:20;
+    text-align:center;opacity:0;pointer-events:none;transition:.24s cubic-bezier(.34,1.56,.64,1)}
   #toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
-  #toast .box{display:inline-block;background:linear-gradient(180deg,#fffdf6,#ffeccb);border:3px solid var(--ink);border-radius:24px;
-    padding:20px 34px;box-shadow:0 6px 0 rgba(47,35,20,.45), 0 14px 34px rgba(0,0,0,.28)}
-  #toast .box b{display:block;font-size:32px;font-weight:900;color:var(--ink);letter-spacing:1px;line-height:1.15;text-shadow:0 2px 0 rgba(255,255,255,.55)}
-  #toast .box small{display:block;font-size:14px;font-weight:800;color:#7a6544;margin-top:10px;letter-spacing:0;line-height:1.4}
+  #toast .box{display:inline-block;padding:6px 26px}
+  #toast .big{display:block;font-size:76px;font-weight:900;letter-spacing:8px;line-height:1.05;color:#ff3d5a;
+    text-shadow:-4px -4px 0 #fff, 4px -4px 0 #fff, -4px 4px 0 #fff, 4px 4px 0 #fff,
+                0 9px 0 rgba(20,22,31,.28)}
+  #toast.good .big{color:#25b6ff}
+  #toast.gold .big{color:#ffb300}
+  #toast .pill{display:inline-block;margin-top:12px;font-size:17px;font-weight:900;color:#fff;letter-spacing:2px;
+    background:linear-gradient(180deg,#57c8ff,#2f9fe8);border:3px solid var(--ink);border-radius:999px;padding:5px 24px;
+    box-shadow:0 4px 0 rgba(20,22,31,.35)}
+  #toast.bad .pill{background:linear-gradient(180deg,#ff9db6,#ff5c8a)}
+  #toast .box small{display:none}
 
   #err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;
     background:var(--bg);z-index:99;text-align:center;padding:30px;gap:10px}
@@ -183,14 +226,33 @@
 <body>
 <div id="c"></div>
 
-<div id="top" class="panel">
-  <div class="t">乒乓球 3D 物理模拟<small>落点反解 · 实时轨迹 · 旋转 · 撞击力 · 摩擦力</small></div>
-  <div id="sc"><span class="pl you"><span class="nm">你</span><b id="sp">0</b></span><span class="vs">:</span><span class="pl ai"><b id="sa">0</b><span class="nm">AI</span></span>
-    <span id="rv">回合 <b>0</b></span></div>
+<div id="top">
+  <div class="pcard you">
+    <span class="avs"><span class="av">🐯</span><span class="av">🐭</span></span>
+    <span class="pinfo">
+      <span class="pname">我方 · 你</span>
+      <span class="hpbar"><i id="hp_i"></i></span>
+      <span class="hotpill">🔥 热血 <b id="hot_pct">0%</b> · 专注</span>
+    </span>
+    <b class="bubble" id="sp">0</b>
+  </div>
+  <div class="pcard ai">
+    <span class="avs"><span class="av">🐺</span><span class="av">🦊</span></span>
+    <span class="pinfo">
+      <span class="pname">对方 · AI</span>
+      <span class="hpbar"><i id="hp_a" style="background:linear-gradient(90deg,#8fd0ff,#3b8fe0)"></i></span>
+      <span class="hotpill">❄️ 冷静 <b id="hot_a">0%</b> · 防守</span>
+    </span>
+    <b class="bubble" id="sa">0</b>
+  </div>
 </div>
+<div id="clockChip"><span class="dot"></span><span id="clock">00:00</span></div>
+<div id="combo"><b id="combo_n">2</b><span>连击</span></div>
+<div id="p1tag">P1</div>
+<div id="vibe"><span class="duck">🏓</span>第 <b id="rv_n">0</b> 球 · 最高连击 <b id="best_c">0</b></div>
 
-<div id="left" class="panel">
-  <button class="ptoggle" id="tgl_left" title="收起 / 展开左侧看板">收起</button>
+<div id="left" class="panel collapsed">
+  <button class="ptoggle" id="tgl_left" title="收起 / 展开左侧看板">参数 ▸</button>
   <h3>落点目标 <span id="tgtTxt">中台</span></h3>
   <div class="grid9" id="g9"></div>
   <div class="note">直接在 3D 台面上<b>点击</b>任意位置即可自由指定落点。</div>
@@ -233,6 +295,7 @@
   <label class="chk"><input type="checkbox" id="k_comp" checked>力度不足时自动补偿</label>
   <label class="chk"><input type="checkbox" id="k_force" checked>显示受力矢量</label>
   <label class="chk"><input type="checkbox" id="k_trail1" checked>球轨迹只保留最近一拍</label>
+  <label class="chk"><input type="checkbox" id="k_fxball" checked>球轨迹特效（彩带 + 光尾）</label>
   <label class="chk"><input type="checkbox" id="k_in" checked>显示来球轨迹</label>
   <label class="chk"><input type="checkbox" id="k_out" checked>显示回球预览</label>
 
@@ -301,8 +364,8 @@
   </div>
 </div>
 
-<div id="right" class="panel">
-  <button class="ptoggle" id="tgl_right" title="收起 / 展开右侧看板">收起</button>
+<div id="right" class="panel collapsed">
+  <button class="ptoggle" id="tgl_right" title="收起 / 展开右侧看板">◂ 数据</button>
   <h3>球体状态</h3>
   <div class="kv"><span class="k">球速</span><span class="n hl" id="r_v">—</span></div>
   <div class="bar"><i id="r_vb" style="width:0"></i></div>
@@ -378,11 +441,6 @@
 <div id="frzbar" class="hidden"><span class="dot"></span><span id="frzbarTxt"></span></div>
 <div id="chainbar" class="chainbar"><span class="lbl">技术链路</span><span id="chainTxt">—</span></div>
 <div id="tip">左/右键<b>拖动</b>旋转视角 · 滚轮缩放 · <b>Q/E</b> 环绕 · <b>F</b> 切视角 · 左键<b>点击</b>台面指定落点 · <b>Z</b> 击球定格 · 定格中 <b>Shift+拖动</b> 调拍面 · <b>G</b> 拍面归零 · <b>B</b> 反手横打/推挡 · <b>M</b> 自动/手动</div>
-
-<div id="bot" class="panel">
-  <div class="lab"><span>击球时机</span><span id="tbTxt">—</span></div>
-  <div id="tb"><div id="tbz"></div><div id="tbp"></div></div>
-</div>
 
 <div id="toast"></div>
 <div id="err"><b>Three.js 加载失败</b><span>该页面需要联网加载 Three.js（CDN）。请检查网络后刷新，或改用本地 three.module.js。</span></div>
@@ -1030,9 +1088,9 @@ function addOutline(mesh, scale, color){
 }
 
 const scene = new THREE.Scene();
-/* 明亮卡通天空（上浅蓝 → 下更浅，营造 outdoors 感） */
-scene.background = new THREE.Color(0x7ec8f2);
-scene.fog = new THREE.Fog(0xa8ddf7, 9, 26);
+/* 派对风暖色氛围（参考图：奶油橙看台 + 粉紫地面 + 青色球台） */
+scene.background = new THREE.Color(0xffd9bd);
+scene.fog = new THREE.Fog(0xffcfb2, 11, 30);
 
 const camera = new THREE.PerspectiveCamera(46, innerWidth/innerHeight, 0.05, 100);
 const renderer = new THREE.WebGLRenderer({ antialias:true });
@@ -1042,68 +1100,128 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.getElementById('c').appendChild(renderer.domElement);
 
-/* 卡通光照：明亮、均匀、弱阴影 —— 避免写实暗部，保持"平涂"观感 */
-scene.add(new THREE.HemisphereLight(0xdff0ff, 0x8fbf6a, 0.95));
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));        // 提亮暗部，卡通不留死黑
-const key = new THREE.DirectionalLight(0xfff8e7, 1.15);
+/* 派对风光照：暖阳 + 粉色地面反光，整体无死黑 */
+scene.add(new THREE.HemisphereLight(0xfff2dd, 0xffb9cd, 1.0));
+scene.add(new THREE.AmbientLight(0xffffff, 0.62));        // 提亮暗部，卡通不留死黑
+const key = new THREE.DirectionalLight(0xfff0d6, 1.2);
 key.position.set(2.2, 5.2, 3.0); key.castShadow = true;
 key.shadow.mapSize.set(1024,1024); key.shadow.camera.near=1; key.shadow.camera.far=14;
 key.shadow.camera.left=-3.2; key.shadow.camera.right=3.2; key.shadow.camera.top=3.2; key.shadow.camera.bottom=-3.2;
 key.shadow.bias = -0.0008;
 scene.add(key);
-const fill = new THREE.DirectionalLight(0xbfe4ff, 0.35); fill.position.set(-3,2,-2.5); scene.add(fill);
+const fill = new THREE.DirectionalLight(0xffd9e8, 0.42); fill.position.set(-3,2,-2.5); scene.add(fill);
 
-/* 地面：卡通草地球场（马里奥网球风格的亮绿） */
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(26,26), toonMat(0x5fbf52));
+/* 地面：粉紫派对地坪（外圈深粉 → 内场浅粉垫） */
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(26,26), toonMat(0xee9fbb));
 floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
-/* 球场边线（白色粗条，卡通感） */
-const courtLine = new THREE.Mesh(new THREE.RingGeometry(4.6, 4.75, 48),
-  new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.55, side:THREE.DoubleSide }));
-courtLine.rotation.x = -Math.PI/2; courtLine.position.y = 0.004; scene.add(courtLine);
+/* 内场浅粉垫：贴图带大字标（参考图地面上的 "GOO... OPEN" 白字） */
+const matTex = (()=>{
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1024;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#f7c3d4'; g.fillRect(0,0,1024,1024);
+  // 大号斜排白字（透明度低，像地贴）
+  g.save(); g.translate(512,512); g.rotate(-Math.PI/7);
+  g.font = '900 150px -apple-system,"PingFang SC",sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(255,255,255,.42)';
+  g.fillText('GO! PING PONG', 0, -60);
+  g.fillText('OPEN 2026', 0, 120);
+  g.restore();
+  // 四角装饰圆点
+  g.fillStyle = 'rgba(255,255,255,.30)';
+  for (const [cx,cy,r] of [[120,120,46],[904,120,46],[120,904,46],[904,904,46]]){
+    g.beginPath(); g.arc(cx,cy,r,0,Math.PI*2); g.fill();
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+})();
+const courtMat = new THREE.Mesh(new THREE.PlaneGeometry(8.6, 10.6),
+  new THREE.MeshToonMaterial({ color:0xffffff, map:matTex, gradientMap:toonGradient }));
+courtMat.rotation.x = -Math.PI/2; courtMat.position.y = 0.006; courtMat.receiveShadow = true;
+scene.add(courtMat);
+/* 球场装饰虚线环（参考图：球员区外的大圆圈线） */
+const mkDashRing = (r, op, col)=>{
+  const pts = [];
+  for (let i=0;i<=96;i++){ const a = i/96*Math.PI*2; pts.push(new THREE.Vector3(Math.cos(a)*r, 0.012, Math.sin(a)*r)); }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const l = new THREE.Line(geo, new THREE.LineDashedMaterial({ color:col||0xffffff, transparent:true, opacity:op, dashSize:0.22, gapSize:0.16 }));
+  l.computeLineDistances();
+  scene.add(l); return l;
+};
+mkDashRing(1.72, 0.55);                    // 玩家区圈
+mkDashRing(3.35, 0.30);                    // 场地大圈
 /* 网格线淡化（保留落点参考，但调成卡通浅色） */
 const grid = new THREE.GridHelper(26, 52, 0xffffff, 0xffffff);
-grid.material.transparent = true; grid.material.opacity = 0.16; scene.add(grid);
+grid.material.transparent = true; grid.material.opacity = 0.10; grid.position.y = 0.002; scene.add(grid);
+
+/* 场馆天穹：无缝竖向渐变（奶油橙 → 蜜桃 → 与地面同色收底）。
+   旧写法用 48 段 openEnded 圆柱当看台墙：半径 9.2m 下每段弧长 ~1.2m，
+   低机位能看到明显棱面 + 色带（用户反馈「场景有马赛克」）。天穹无接缝、无棱面。 */
+const domeTex = (()=>{
+  const cv = document.createElement('canvas'); cv.width = 8; cv.height = 256;
+  const g = cv.getContext('2d');
+  const grd = g.createLinearGradient(0,0,0,256);
+  grd.addColorStop(0.00, '#ffc98d');   // 天顶：奶油橙
+  grd.addColorStop(0.34, '#ffb684');
+  grd.addColorStop(0.50, '#ff9f78');   // 地平线：蜜桃
+  grd.addColorStop(0.52, '#f2a3bd');   // 地面色，接floor外圈
+  grd.addColorStop(1.00, '#ee9fbb');
+  g.fillStyle = grd; g.fillRect(0,0,8,256);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  return t;
+})();
+{
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(26, 64, 24, 0, Math.PI*2, 0, Math.PI/2),
+    new THREE.MeshBasicMaterial({ map:domeTex, side:THREE.BackSide, fog:true, depthWrite:false }));
+  scene.add(dome);
+  // 天穹与地坪的交界环（奶油色细环，盖住接缝）
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(25.94, 0.14, 10, 96),
+    new THREE.MeshBasicMaterial({ color:0xfff1dc }));
+  rim.rotation.x = -Math.PI/2; rim.position.y = 0.03; scene.add(rim);
+}
 
 /* 球台 */
 const tableG = new THREE.Group(); scene.add(tableG);
-const topMat = toonMat(0x1f7ae0);                       // 鲜艳卡通蓝台面
+const topMat = toonMat(0x2fc4c9);                       // 派对风青色台面
 const tableTop = new THREE.Mesh(new THREE.BoxGeometry(T.W, 0.05, T.L), topMat);
 tableTop.position.y = T.top - 0.025; tableTop.receiveShadow = true; tableTop.castShadow = true;
 tableTop.name = 'tableTop'; tableG.add(tableTop);
-/* 台裙（深色包边，卡通厚描边感） */
-const skirt = new THREE.Mesh(new THREE.BoxGeometry(T.W+0.07, 0.055, T.L+0.07), toonMat(0x123a6b));
+/* 台裙（粉色包边） */
+const skirt = new THREE.Mesh(new THREE.BoxGeometry(T.W+0.07, 0.055, T.L+0.07), toonMat(0xe96a8b));
 skirt.position.y = T.top - 0.062; tableG.add(skirt);
 
-const lineMat = new THREE.MeshBasicMaterial({ color:0xf2f6ff });
+const lineMat = new THREE.MeshBasicMaterial({ color:0xffffff });
 const addLine = (w,d,x,z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,0.002,d), lineMat);
   m.position.set(x, T.top+0.0012, z); tableG.add(m); };
 addLine(0.02, T.L,  T.halfW, 0); addLine(0.02, T.L, -T.halfW, 0);
 addLine(T.W, 0.02, 0,  T.halfL); addLine(T.W, 0.02, 0, -T.halfL);
 addLine(0.015, T.L, 0, 0);
 /* 台面分区高亮（落点可选区） */
-const zoneMat = new THREE.MeshBasicMaterial({ color:0x60a5fa, transparent:true, opacity:0.09, side:THREE.DoubleSide });
+const zoneMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.08, side:THREE.DoubleSide });
 const zone = new THREE.Mesh(new THREE.PlaneGeometry(T.W, T.halfL-0.06), zoneMat);
 zone.rotation.x = -Math.PI/2; zone.position.set(0, T.top+0.0025, -T.halfL/2-0.03); tableG.add(zone);
 
-/* 台腿（卡通深蓝 + 粗描边） */
-const legMat = toonMat(0x274b7d);
+/* 台腿（粉色 + 粗描边） */
+const legMat = toonMat(0xf08fb0);
 for (const sx of [-1,1]) for (const sz of [-1,1]){
   const l = new THREE.Mesh(new THREE.BoxGeometry(0.10, T.top-0.05, 0.10), legMat);
   l.position.set(sx*(T.halfW-0.18), (T.top-0.05)/2, sz*(T.halfL-0.22)); l.castShadow = true; tableG.add(l);
   addOutline(l, 1.10);
 }
 
-/* 球网：白色网面 + 卡通亮色顶带 + 醒目支柱 */
+/* 球网：白色网面 + 白色顶带 + 粉色支柱 */
 const netG = new THREE.Group(); scene.add(netG);
 const net = new THREE.Mesh(new THREE.PlaneGeometry(T.netW, T.netH),
   new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.30, side:THREE.DoubleSide,
     depthWrite:false }));
 net.position.set(0, T.top+T.netH/2, 0); netG.add(net);
-const tape = new THREE.Mesh(new THREE.BoxGeometry(T.netW, 0.016, 0.008), toonMat(0xffd23f));
-tape.position.set(0, T.top+T.netH, 0); netG.add(tape);   // 黄色顶带
+const tape = new THREE.Mesh(new THREE.BoxGeometry(T.netW, 0.016, 0.008), toonMat(0xffffff));
+tape.position.set(0, T.top+T.netH, 0); netG.add(tape);   // 白色顶带
 for (const s of [-1,1]){
-  const p = new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,T.netH+0.05,10), toonMat(0xe23b3b));
-  p.position.set(s*(T.netW/2), T.top+T.netH/2, 0); netG.add(p);   // 红色支柱
+  const p = new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,T.netH+0.05,10), toonMat(0xe96a8b));
+  p.position.set(s*(T.netW/2), T.top+T.netH/2, 0); netG.add(p);   // 粉色支柱
   addOutline(p, 1.14);
 }
 
@@ -1122,6 +1240,192 @@ seam2.rotation.y = Math.PI/2; ballG.add(seam2);
 const shadow = new THREE.Mesh(new THREE.CircleGeometry(PH.r*1.55, 20),
   new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.3, depthWrite:false }));
 shadow.rotation.x = -Math.PI/2; scene.add(shadow);
+
+/* ════ 派对风击球特效 ══════════════════════════════════════════════
+   ① 球光尾：additive 渐变细带（跟随球，速度快时更亮更长）
+   ② 挥拍彩带：拍子高速挥动时沿轨迹铺出 粉→绿 渐变彩带（参考图的弧光）
+   ③ 击球爆点：接触点扩散圆环 + 放射粒子
+   ④ 落台涟漪：球落在台面上的小白圈                                        */
+const FX = (()=>{
+  /* —— ② 挥拍彩带：三角形条带，顶点色 新端→旧端 渐变 + 加色混合 —— */
+  /* 多段彩色渐变：stops = [[r,g,b],...]，k∈[0,1] 从尾(旧)到头(新) */
+  function gradMix(st, k){
+    const n = st.length-1;
+    const p = clamp(k,0,1)*n, i = Math.min(n-1, Math.floor(p)), f = p-i;
+    const a = st[i], b = st[i+1];
+    return [ a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f ];
+  }
+  function mkRibbon(maxSeg, width, stops){
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(maxSeg*2*3), col = new Float32Array(maxSeg*2*3);
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color',    new THREE.BufferAttribute(col, 3));
+    const idx = [];
+    for (let i=0;i<maxSeg-1;i++){ const a=i*2; idx.push(a,a+1,a+2, a+1,a+3,a+2); }
+    geo.setIndex(idx);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      vertexColors:true, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending,
+      depthWrite:false, side:THREE.DoubleSide }));
+    mesh.frustumCulled = false; mesh.visible = false; scene.add(mesh);
+    return { mesh, geo, pos, col, maxSeg, width, stops, pts:[], prev:null };
+  }
+  const ribbonP = mkRibbon(22, 0.055, [[1.0,0.22,0.62],[1.0,0.62,0.18],[0.42,1.0,0.30]]);  // 己方拍：品红→橙→绿
+  const ribbonA = mkRibbon(22, 0.055, [[1.0,0.22,0.62],[0.62,0.42,1.0],[0.28,0.70,1.0]]);  // 对手拍：品红→紫→蓝
+  const ribbonB = mkRibbon(30, 0.030, [[1.0,0.28,0.70],[1.0,0.85,0.50],[1.0,1.0,0.96]]);   // 球：粉→暖橙→白
+  /* —— ① 球光尾 —— */
+  const TRAILN = 26;
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAILN*3), 3));
+  trailGeo.setAttribute('color',    new THREE.BufferAttribute(new Float32Array(TRAILN*3), 3));
+  const trailMesh = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({
+    vertexColors:true, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false }));
+  trailMesh.frustumCulled = false; scene.add(trailMesh);
+  const ballTrail = [];
+  let ballFxOn = true;                       // 「球轨迹特效」开关（左看板 checkbox k_fxball）
+  /* —— ③ 爆点圆环池 —— */
+  const rings = [];
+  for (let i=0;i<10;i++){
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.75, 1.0, 36),
+      new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0, blending:THREE.AdditiveBlending,
+        depthWrite:false, side:THREE.DoubleSide }));
+    m.visible = false; scene.add(m);
+    rings.push({ m, t:1, dur:0.38, s0:0.05, s1:0.42 });
+  }
+  /* —— ③ 粒子池 —— */
+  const sparks = [];
+  const spGeo = new THREE.SphereGeometry(0.011, 6, 5);
+  for (let i=0;i<48;i++){
+    const m = new THREE.Mesh(spGeo, new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true,
+      opacity:0, blending:THREE.AdditiveBlending, depthWrite:false }));
+    m.visible = false; scene.add(m);
+    sparks.push({ m, v:[0,0,0], t:1, dur:0.45 });
+  }
+  let ringI = 0, spI = 0;
+  function spawnRing(p, n, col, s1){
+    const r = rings[ringI++ % rings.length];
+    r.m.position.set(p[0], p[1], p[2]);
+    r.m.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), new THREE.Vector3(n[0],n[1],n[2]).normalize());
+    r.m.material.color.setHex(col); r.m.material.opacity = 0.95;
+    r.t = 0; r.s1 = s1 || 0.42; r.m.visible = true;
+  }
+  function spawnSparks(p, base, col, n2){
+    for (let i=0;i<n2;i++){
+      const s = sparks[spI++ % sparks.length];
+      s.m.position.set(p[0], p[1], p[2]);
+      const a = Math.random()*Math.PI*2, up = 0.35+Math.random()*0.65;
+      s.v = [ base[0]*0.4 + Math.cos(a)*(0.5+Math.random()*0.9),
+              base[1]*0.4 + up*1.1,
+              base[2]*0.4 + Math.sin(a)*(0.5+Math.random()*0.9) ];
+      s.m.material.color.setHex(col); s.m.material.opacity = 1;
+      s.t = 0; s.dur = 0.32+Math.random()*0.25; s.m.visible = true;
+    }
+  }
+  /* 击球爆点：外线调用（applyShot / 落台）。noSpark=true 只出圆环（落台涟漪用） */
+  function burst(p, n, col, big, noSpark){
+    spawnRing(p, n, col, big ? 0.55 : (noSpark ? 0.22 : 0.38));
+    if (!noSpark) spawnSparks(p, n, col, big ? 12 : 8);
+  }
+  /* 每帧推进：dt 为游戏时间 */
+  function update(dt){
+    // 圆环
+    for (const r of rings){
+      if (!r.m.visible) continue;
+      r.t += dt/r.dur;
+      if (r.t >= 1){ r.m.visible = false; continue; }
+      const e = 1-Math.pow(1-r.t, 2.2);
+      r.m.scale.setScalar(r.s0 + (r.s1-r.s0)*e);
+      r.m.material.opacity = 0.95*(1-r.t);
+    }
+    // 粒子
+    for (const s of sparks){
+      if (!s.m.visible) continue;
+      s.t += dt/s.dur;
+      if (s.t >= 1){ s.m.visible = false; continue; }
+      s.v[1] -= 5.5*dt;
+      s.m.position.x += s.v[0]*dt; s.m.position.y += s.v[1]*dt; s.m.position.z += s.v[2]*dt;
+      s.m.material.opacity = 1-s.t;
+    }
+    // 球光尾
+    if (G.live){
+      ballTrail.push(G.st[0], G.st[1], G.st[2]);
+      while (ballTrail.length > TRAILN*3) ballTrail.splice(0, 3);
+      const P = trailGeo.attributes.position.array, C = trailGeo.attributes.color.array;
+      const n = ballTrail.length/3;
+      for (let i=0;i<TRAILN;i++){
+        const j = Math.max(0, n-TRAILN+i);          // 旧的在前
+        P[i*3]   = ballTrail[j*3];
+        P[i*3+1] = ballTrail[j*3+1];
+        P[i*3+2] = ballTrail[j*3+2];
+        const k = i/Math.max(1,TRAILN-1);           // 0=旧 1=新
+        const fade = (ballTrail.length>=TRAILN*3 || i >= TRAILN-n) ? (0.15+0.85*k) : 0;
+        C[i*3]   = 1.0*(0.55+0.45*k)*fade;          // 白 → 粉
+        C[i*3+1] = (0.42+0.35*k)*fade;
+        C[i*3+2] = (0.80+0.20*k)*fade;
+      }
+      trailGeo.attributes.position.needsUpdate = true;
+      trailGeo.attributes.color.needsUpdate = true;
+      trailMesh.visible = true;
+    } else { trailMesh.visible = false; ballTrail.length = 0; }
+    // ── 球轨迹彩带：每帧记录球心，停球时从尾端收回（可由「球轨迹特效」开关关闭）
+    if (ballFxOn && G.live){
+      ribbonB.pts.push([G.st[0], G.st[1], G.st[2]]);
+      while (ribbonB.pts.length > ribbonB.maxSeg) ribbonB.pts.shift();
+    } else if (ribbonB.pts.length){ ribbonB.pts.shift(); }
+    if (!ballFxOn){ ribbonB.mesh.visible = false; trailMesh.visible = false; ballTrail.length = 0; }
+    const camDir = camera.getWorldDirection(_fxV1);
+    for (const [rb, pad] of [[ribbonB, null], [ribbonP, G.pp], [ribbonA, G.ap]]){
+      if (pad){
+        const cur = pad.vpos;
+        if (!cur){ rb.pts.length = 0; rb.prev = null; rb.mesh.visible = false; continue; }
+        if (rb.prev){
+          const spd = Math.hypot(cur[0]-rb.prev[0], cur[1]-rb.prev[1], cur[2]-rb.prev[2])/Math.max(dt,1e-4);
+          if (spd > 2.2){
+            rb.pts.push([cur[0], cur[1], cur[2]]);
+            while (rb.pts.length > rb.maxSeg) rb.pts.shift();
+          } else if (rb.pts.length){ rb.pts.shift(); }   // 停止挥动 → 彩带从尾端收回
+        }
+        rb.prev = cur.slice();
+      }
+      const m = rb.pts.length;
+      if (m < 3){ rb.mesh.visible = false; continue; }
+      rb.mesh.visible = true;
+      for (let i=0;i<rb.maxSeg;i++){
+        const j0 = Math.max(0, m-1-Math.min(i, m-1)), j1 = Math.max(0, m-1-Math.min(i+1, m-1));
+        const p0 = rb.pts[j0], p1 = rb.pts[j1];
+        // 侧面方向 = 轨线 × 视线（面向相机的条带）
+        let dx = p1[0]-p0[0], dy = p1[1]-p0[1], dz = p1[2]-p0[2];
+        const dl = Math.hypot(dx,dy,dz) || 1;
+        let sx = dy*camDir.z - dz*camDir.y, sy = dz*camDir.x - dx*camDir.z, sz = dx*camDir.y - dy*camDir.x;
+        const sl = Math.hypot(sx,sy,sz) || 1;
+        // ⚠️ 索引方向：i=0 对应 rb.pts[m-1]（最新/拍头），i=maxSeg-1 对应 pts[0]（最旧/尾端）。
+        //    k 统一定义为「0=尾 → 1=拍头」，颜色渐变与渐隐都按这个方向铺。
+        const kk = i/(rb.maxSeg-1);
+        const k = 1 - kk;
+        const w = rb.width * (0.30 + 0.70*k);                      // 拍头粗、尾端细
+        sx = sx/sl*w; sy = sy/sl*w; sz = sz/sl*w;
+        // 尾端渐隐：additive 下 RGB→0 即全透明 ⇒ 尾端平滑过渡到看不见，拍头最亮
+        const tail = clamp(1 - Math.max(0, i - (m-1))/(rb.maxSeg-m+1), 0, 1);  // 无实有点的段=0
+        const fade = tail * (k*k*(3-2*k));
+        rb.pos[(i*2)*3]   = p0[0]-sx; rb.pos[(i*2)*3+1] = p0[1]-sy; rb.pos[(i*2)*3+2] = p0[2]-sz;
+        rb.pos[(i*2+1)*3] = p0[0]+sx; rb.pos[(i*2+1)*3+1] = p0[1]+sy; rb.pos[(i*2+1)*3+2] = p0[2]+sz;
+        // 多段彩色渐变：品红 → 橙 → 绿（球：粉 → 暖橙 → 白）
+        const gs = gradMix(rb.stops, k);
+        rb.col[(i*2)*3]   = gs[0]*fade; rb.col[(i*2)*3+1] = gs[1]*fade; rb.col[(i*2)*3+2] = gs[2]*fade;
+        rb.col[(i*2+1)*3] = gs[0]*fade; rb.col[(i*2+1)*3+1] = gs[1]*fade; rb.col[(i*2+1)*3+2] = gs[2]*fade;
+      }
+      rb.geo.attributes.position.needsUpdate = true;
+      rb.geo.attributes.color.needsUpdate = true;
+    }
+  }
+  function clearBallTrail(){ ballTrail.length = 0; }
+  function setBallFx(on){
+    ballFxOn = !!on;
+    if (!ballFxOn){ ribbonB.pts.length = 0; ribbonB.mesh.visible = false; trailMesh.visible = false; }
+  }
+  return { burst, update, clearBallTrail, setBallFx, ribbons:{ p:ribbonP, a:ribbonA, b:ribbonB } };
+})();
+const _fxV1 = new THREE.Vector3();
+const _fxV2 = new THREE.Vector3();
 
 /* 球拍 ─────────────────────────────────────────────────────────────
    局部坐标约定：拍面位于 XY 平面、法线 = +Z，拍柄沿 -Y 伸出。
@@ -1768,9 +2072,11 @@ const G = {
 };
 /* 视角：0-3 为固定机位（上帝视角），4 跟随已方，5/6 第一人称 */
 const CAM = [
-  { name:'转播全景', type:'orbit', fov:46, r:3.75, th:0.0,  ph:1.22, ty:0.88 },
-  { name:'侧后方',   type:'orbit', fov:46, r:3.30, th:0.42, ph:1.14, ty:0.86 },
-  { name:'近台特写', type:'orbit', fov:46, r:2.35, th:0.0,  ph:1.42, ty:1.00 },
+  // 参考派对类游戏构图：机位退到玩家身后上方，玩家落在画面下缘、球台占主体
+  // （旧值 r=3.75 时机位距己方角色仅 ~1.2m，1.78m 的人占满屏幕 ⇒ 遮挡 + 贴图被放大成马赛克）
+  { name:'转播全景', type:'orbit', fov:46, r:4.85, th:0.0,  ph:1.10, ty:1.02 },
+  { name:'侧后方',   type:'orbit', fov:46, r:4.10, th:0.42, ph:1.02, ty:0.98 },
+  { name:'近台特写', type:'orbit', fov:46, r:2.95, th:0.0,  ph:1.36, ty:1.02 },
   { name:'俯视战术', type:'orbit', fov:46, r:3.10, th:0.0,  ph:0.42, ty:0.80 },
   { name:'第三人称', type:'follow', fov:50, who:'p' },
   { name:'第一人称', type:'fps',    fov:66, who:'p' },
@@ -1953,6 +2259,15 @@ function applyShot(st, who, n, vp){
   pad.hitAt = GT;
   pad.hitPos = [pad.p[0], pad.p[1], pad.p[2]];
   pad.hitN = n.slice();                 // 供随挥 / 手腕动画使用
+  /* 派对特效：击球爆点（接触点扩散圆环 + 放射粒子，己方绿 / 对手粉） */
+  FX.burst(pad.hitPos, n, who==='p' ? 0xa8ff5a : 0xff8ac2, false);
+  /* 连击 / 热血统计（派对 HUD） */
+  G.combo = G.combo || { p:0, a:0, best:0 };
+  G.combo[who] = (G.combo[who]||0) + 1;
+  if (who==='p' && G.combo.p > G.combo.best) G.combo.best = G.combo.p;
+  (G.hotLog = G.hotLog || []).push(GT);
+  if (G.hotLog.length > 60) G.hotLog.shift();
+  FX.clearBallTrail();
   G.live = true; G.phase = 'play'; G.bounces = 0; G.last = who;
   G.bounceOK.p = false; G.bounceOK.a = false; G.netTouch = false;
   G.rally++;
@@ -2140,6 +2455,8 @@ function pointTo(who, why){
   if (G.phase === 'point') return;
   G.phase = 'point'; G.live = false;
   if (who==='p') G.score.p++; else G.score.a++;
+  G.combo = G.combo || { p:0, a:0, best:0 };
+  G.combo.p = 0; G.combo.a = 0;                      // 回合结束 → 连击清零
   if (G.mode === 'match' && G.match.lastZone >= 0){     // 落点自适应：用本分结果更新该区位胜率
     const zi = G.match.lastZone, wr = G.match.zoneWin[zi];
     G.match.zoneWin[zi] = clamp(wr + (who==='p' ? 0.16 : -0.13), 0.05, 0.95);
@@ -2162,7 +2479,14 @@ function pointTo(who, why){
       return;                                        // 停在 'point'，等「再来一局」
     }
   }
-  toast((who==='p'?'你':'AI') + ' 得分', why);
+  // 派对风事件大字：标题 = 判词缩短成 2~3 字（特大号），pill = 哪一方得分
+  const shortWhy = why => why.includes('出界') ? '出界'
+    : why.includes('二次落台') ? '制胜'
+    : why.includes('未过网') ? '下网'
+    : why.includes('未接到') ? '未接到'
+    : why.includes('违规') ? '违例'
+    : (why.length > 4 ? why.slice(0, 4) : why);
+  toast(shortWhy(why), who==='p' ? '我方得分 +1' : '对方得分 +1', who==='p' ? 'good' : 'bad');
   G.letRun = 0;
   autoServeAt = performance.now() + 2400;              // 定格模式自动发球（若开启）
   setTimeout(()=>{ if (G.phase==='point') resetBall(G.server); }, 1500);
@@ -2665,6 +2989,8 @@ function physics(dt){
 function onBounce(x, z){
   const sideZ = z > 0 ? 'p' : 'a';
   const hitter = G.last;
+  /* 派对特效：落台涟漪（台面小白圈，只出环不出粒子） */
+  FX.burst([x, T.top+0.012, z], [0,1,0], 0xffffff, false, true);
   if (sideZ) G.bounceOK[sideZ] = true;             // 该半台已落台 → 该方取得回击资格
   if (G.needOwn){                                  // 发球第一落点须在本方半台
     if (sideZ !== G.server){ pointTo(G.server==='p'?'a':'p','发球落点违规'); return; }
@@ -3558,7 +3884,7 @@ const $ = id => document.getElementById(id);
 const UI = {};
 ['s_power','s_spin','s_side','s_time','s_hp','s_mu','s_grip','s_rest','s_assist','s_ai','s_stance','s_tilt','s_face','s_roll','s_clRetreat','s_clBoost']
   .forEach(k=>UI[k]=$(k));
-['k_comp','k_force','k_in','k_out','k_body','k_face','k_swing','k_autobest','k_autoserve','k_trail1'].forEach(k=>UI[k]=$(k));
+['k_comp','k_force','k_in','k_out','k_body','k_face','k_swing','k_autobest','k_autoserve','k_trail1','k_fxball'].forEach(k=>UI[k]=$(k));
 
 /* ── 左右看板收起 / 展开 ──
    收起态由 CSS 完成（隐藏除开关外的子元素 + 面板缩成胶囊），这里只切 class 与按钮文案。
@@ -3591,6 +3917,7 @@ function bind(){
     });
   }
   UI.k_comp.addEventListener('change', ()=>{ G.comp = UI.k_comp.checked; planDirty = true; });
+  UI.k_fxball.addEventListener('change', ()=>{ FX.setBallFx(UI.k_fxball.checked); });
   $('b_serve').onclick = ()=>{ if (G.phase==='ready') doServe(); };
   $('b_reset').onclick = ()=>{ newMatch(); };
   $('b_mode').onclick   = ()=>{ setMatch(G.mode !== 'match'); };
@@ -3708,10 +4035,12 @@ function syncTarget(){
 }
 
 let toastT = 0;
-function toast(main, sub){
+function toast(main, sub, mood){
   const el = $('toast');
   const esc = s => String(s).replace(/[&<"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  el.innerHTML = `<div class="box"><b>${esc(main)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`;
+  // 派对风事件大字：main 为特大号标题，sub 渲染为得分 pill
+  el.className = mood || '';
+  el.innerHTML = `<div class="box"><span class="big">${esc(main)}</span>${sub ? `<span class="pill">${esc(sub)}</span>` : ''}</div>`;
   el.classList.add('show'); toastT = performance.now();
 }
 let tipT = 0;
@@ -3886,18 +4215,30 @@ function updateHUD(){
     ' / ' + f1((lb.info.Jt*1000).toFixed(2),'mN·s 切向') : '—';
 
   $('sp').textContent = G.score.p; $('sa').textContent = G.score.a;
-  $('rv').innerHTML = `回合 <b>${G.rally}</b>`;
+  const rvEl = $('rv_n'); if (rvEl) rvEl.textContent = G.rally;
+  /* ── 派对 HUD：计时 / 连击 / 热血 ── */
+  {
+    const mm = Math.floor((G.playClock||0)/60), ss = Math.floor((G.playClock||0)%60);
+    const ck = $('clock'); if (ck) ck.textContent = `${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+    const cb = $('combo');
+    if (cb){
+      const c = (G.combo && G.combo.p) || 0;
+      if (c >= 2){ const n = $('combo_n'); if (n && n.textContent !== String(c)){ n.textContent = c;
+        cb.classList.remove('show'); void cb.offsetWidth; cb.classList.add('show'); } }
+      else cb.classList.remove('show');
+    }
+    const bc = $('best_c'); if (bc) bc.textContent = (G.combo && G.combo.best) || 0;
+    // 热血：最近 8s（游戏时间）内的击球密度 → 18% 起步
+    if (G.hotLog) { while (G.hotLog.length && GT - G.hotLog[0] > 8) G.hotLog.shift(); }
+    const hot = Math.min(96, 10 + 7*((G.hotLog||[]).length));
+    const hp1 = $('hot_pct'); if (hp1) hp1.textContent = Math.round(hot) + '%';
+    const bar = $('hp_i'); if (bar) bar.style.width = Math.max(8, hot) + '%';
+    const hpa = $('hot_a'); if (hpa) hpa.textContent = Math.round(Math.min(99, 30 + ((G.combo&&G.combo.a)||0)*9)) + '%';
+    const barA = $('hp_a'); if (barA) barA.style.width = Math.min(99, 30 + ((G.combo&&G.combo.a)||0)*9) + '%';
+  }
   syncMatchUI();
 
-  // 时机条
-  if (p && G.live && G.last !== 'p'){
-    const total = Math.max(0.35, p.t0);
-    const frac = clamp(1 - p.t/total, 0, 1);
-    $('tbp').style.left = (frac*100)+'%';
-    $('tbp').className = p.t < 0.05 ? 'go' : '';
-    $('tbTxt').innerHTML = `还剩 <b>${Math.max(0,p.t*1000).toFixed(0)} ms</b> · ` +
-      (p.t<0.05 ? '<span style="color:var(--ok)">立即出手</span>' : '准备迎球');
-  } else { $('tbTxt').textContent = '—'; $('tbp').style.left='100%'; $('tbp').className=''; }
+  // 时机条（已按需求移除：底部「击球时机」面板不再显示；解算仍在内部照常进行）
   updateFreezeHUD();
 }
 
@@ -4988,8 +5329,10 @@ const hPlayer = buildHuman(0xf5c9a2, 0xe23b3b, 0x2f5fd0, 0x3a2f2a, true, true,  
 const hAI     = buildHuman(0xf5c9a2, 0x2fa84a, 0x5b3fa8, 0x3a2f2a, true, false, 'AI', -1.9);
 /* 异步换上 Quaternius 人物模型 + 乒乓球动作片段（加载失败则维持火柴人） */
 loadCharLib().then(()=>{
-  attachCharModel(hPlayer, 0, true,  1.78);   // 玩家：男（半透明）
-  attachCharModel(hAI,     1, false, 1.78);   // 对手：女
+  // 角色保持原始比例 1.78m（用户确认原比例好）——遮挡问题改由拉远机位解决，
+  // 不再压缩人物（缩放会让 rig 的世界坐标与模型骨长一起缩，容易引出手拍间距问题）。
+  attachCharModel(hPlayer, 0, true,  1.78);   // 玩家：同款模型（半透明 ghost）
+  attachCharModel(hAI,     1, false, 1.78);   // 对手：与己方同款
   window.__PONG.CHAR = { lib:()=>CHAR_LIB, clips:()=>TT_CLIP, ready:()=>CHAR_READY };
 });
 
@@ -5028,6 +5371,7 @@ function loop(now){
   if (G.paused) dt = 0;
   if (G.slow) dt *= 0.25;
   GT += dt;
+  if (G.live) G.playClock = (G.playClock||0) + dt;    // 派对 HUD 顶部计时（只累计比赛进行时间）
 
   applyMoveKeys(dt);                       // WASD 手动站位（上步 / 退台 / 左右）
 
@@ -5083,6 +5427,21 @@ function loop(now){
 
   if (!(G.frz && G.frz.active)){ aiThink(dt); physics(dt); }
   updateVisual(dt);
+  FX.update(dt);                             // 派对特效：球光尾 / 挥拍彩带 / 爆点推进
+
+  /* P1 悬浮标签：玩家头顶 → 屏幕投影（定格微距时隐藏） */
+  {
+    const tag = $('p1tag'), h = VIS.head;
+    const showTag = h && !(G.frz && G.frz.active) && (UI.k_body ? UI.k_body.checked : true);
+    if (showTag){
+      _fxV2.set(h[0], h[1]+0.32, h[2]).project(camera);
+      if (_fxV2.z < 1){
+        tag.style.display = 'block';
+        tag.style.left = ((_fxV2.x*0.5+0.5)*innerWidth)+'px';
+        tag.style.top  = ((-_fxV2.y*0.5+0.5)*innerHeight)+'px';
+      } else tag.style.display = 'none';
+    } else tag.style.display = 'none';
+  }
 
   // 解算刷新（参数/球状态变化时），节流
   hudT += dt;
