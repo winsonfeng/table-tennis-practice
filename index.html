@@ -2363,10 +2363,13 @@ function aiThink(dt){
     pad.n = sol.n.slice();
   }
   // 球已明显越过击球点（朝端线外飞去）且仍差很远 → 放弃；否则继续追（提高接球率）
-  if (G.aiPlan.c[2] < 0 && G.st[2] < G.aiPlan.c[2] - 0.45 && dist > 0.45) return;
-
+  // ⚠️ tgt/dist 必须先声明再用于上面这个守卫：dist 原来声明在守卫之后，
+  //    命中该分支时求值 dist 会撞上 TDZ（Cannot access 'dist' before initialization），
+  //    异常从 aiThink 抛出 → 主循环每帧中断（rAF 已在 loop 首行注册 ⇒ 下一帧继续抛），
+  //    游戏永久静止 = 用户反馈的「运行一段时间后卡死」。（见 2026-10-19 日志）
   const tgt = G.aiPlan.c;
   const dist = Math.hypot(tgt[0]-pad.p[0], tgt[1]-pad.p[1], tgt[2]-pad.p[2]);
+  if (G.aiPlan.c[2] < 0 && G.st[2] < G.aiPlan.c[2] - 0.45 && dist > 0.45) return;
   // 越接近击球点移动越慢（到位后基本静止等球），避免"追着球跑"
   const spd = (2.6 + 4.4*d) * dt * clamp(dist/0.30, 0.15, 1);
   moveTowards(pad.p, tgt, spd);
