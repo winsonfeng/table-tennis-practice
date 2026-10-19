@@ -2960,8 +2960,15 @@ function updateCharacters(dt){
     const refX = (plan && anyLive && G.last !== who) ? plan.c[0] : pad.p[0];
     const lat  = (refX - goalX) * (who === 'p' ? 1 : -1);
     // 正/反手以解算时锁定的结果为准（不再每帧按站位重判 → 不会来回翻转）
-    const bh   = (plan && anyLive && G.last !== who && plan.bh !== undefined)
-                 ? !!plan.bh : (lat < -0.06);
+    // ⚠ 击球后随挥期必须沿用本拍 bh（pad.bhHit）：applyShot 清空 G.plan 后这里
+    //   退回 lat 粗判，而击球后 goalX 还在站位过渡中每帧微调 ⇒ lat 在 -0.06 边界
+    //   反复摆动 → bh/sw 反复翻转 → 收拍方向每帧变号，拍位 ±0.25m 振荡（抽搐），
+    //   手部 IK 跟不上瞬移的拍 → 人手分离。退台深球过渡幅度大，必然触发。
+    let bh;
+    if (G.last === who && pad.bhHit !== undefined) bh = pad.bhHit;
+    else bh = (plan && anyLive && G.last !== who && plan.bh !== undefined)
+              ? !!plan.bh : (lat < -0.06);
+    if (G.last !== who) pad.bhHit = bh;          // 迎球/待机期记录本拍 bh，供随挥沿用
     const sw   = bh ? -1 : 1;                              // 反手时挥拍方向左右互换
 
     // ── 技术 / 拍型（自动）：按来球旋转 + 出球参数切换。
