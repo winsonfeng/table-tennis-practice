@@ -2260,6 +2260,17 @@ function computePlan(){
   G.plan = { c:cd.c, t:cd.t, t0:cd.t, born:performance.now(), ...sol, bh,
              sx:ss.gx, latW:ss.latW,
              target:target.slice(), evPath: predict(sol.r.st, 2.2, 1, true) };
+  // ── 物理拍同步到解算接触点（修复「球没碰到拍就打出去了」）：
+  //    非定格实战中 G.pp.p 此前只在发球时被设为预备位 [0.10,0.98,1.72]，之后
+  //    再也不更新 ⇒ 碰撞检测（tryPaddle）用的物理拍永远卡在身前预备位，
+  //    球飞过那里就被隐形拍截走；而视觉拍在挥拍动画的另一处 —— 用户看到的
+  //    正是「球还没碰到（视觉）拍就被打出去了」。现在每拍把碰撞拍钉到真实
+  //    接触点，updateCharacters 的触球前锁定（pos→pad.p）也会归位到同一处，
+  //    物理与视觉严格一致。
+  if (G.plan.n && isFinite(G.plan.n[0])){
+    G.pp.p = [G.plan.c[0]-G.plan.n[0]*PH.r, G.plan.c[1]-G.plan.n[1]*PH.r, G.plan.c[2]-G.plan.n[2]*PH.r];
+    G.pp.n = vnorm(G.plan.n);
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -3081,7 +3092,9 @@ function updateCharacters(dt){
     //    在空气旁被弹回（实测击球瞬间视觉-物理偏差中位 0.15m / 最大 1.1m，
     //    而拍面半径仅 ~0.08m）。lock 随时间轴平滑升到 1，触球帧完全重合。
     if (tc !== null){
-      const lock = clamp(1 - tc/0.22, 0, 1);
+      // 窗口 0.22→0.32：物理拍钉在接触点后，视觉拍必须更早归位到同一处，
+      // 否则命中帧上球-视觉拍仍有 0.2m+ 缝隙（「球没碰到拍就打出去了」的视觉残留）
+      const lock = clamp(1 - tc/0.32, 0, 1);
       const w = lock*lock*(3-2*lock);
       if (w > 0) pos = vlerp(pos, pad.p, w);
     }
@@ -3093,7 +3106,7 @@ function updateCharacters(dt){
     // 触球前把 k 从 22 渐进拉到 ~300：旧写法是「tc<=0.03 时直接关掉平滑」，
     // 而那一帧视觉拍仍滞后约 0.14m（速度 3m/s ÷ 22），关掉就等于瞬间补齐
     // ⇒ 触球那一刻的一帧突跳，正是"挥拍瞬间抽搐"的来源之一。
-    const nearK = (tc === null) ? 0 : Math.pow(clamp(1 - tc/0.20, 0, 1), 3);
+    const nearK = (tc === null) ? 0 : Math.pow(clamp(1 - tc/0.30, 0, 1), 3);
     if (pad.vpos) pos = vlerp(pad.vpos, pos, 1 - Math.exp(-dt*(22 + 300*nearK)));
     // ── 极限速只兜底防瞬移：新来球到达时，挥拍时间轴从「随挥」瞬间跳回
     //   「预备」，目标位可能突跳 1.4m；掉帧时平滑因子=1 会整体瞬移。
@@ -3230,6 +3243,16 @@ function updateCharacters(dt){
       VIS.stance = [H.stance[0], H.stance[1]];
       VIS.gap = pad.dbgGap || 0; VIS.tc = tc; VIS.rel = rel; VIS.bh = bh;
       VIS.tgt = pad.dbgTgt; VIS.cur = pad.vpos; VIS.tc0 = pad.tc0;
+      // ── 物理拍兜底同步（非迎球阶段）：computePlan 未命中 / 待机 / 随挥期，
+      //    物理拍不能停留在上一拍的旧接触点或发球预备位——那会变成一个
+      //    看不见的"隐形拍"把过路球截走（用户反馈「球没碰到拍就打出去了」）。
+      //    迎球阶段（plan 有效且未出手）则保持 computePlan 钉的接触点不动，
+      //    保证触球帧物理/视觉精确重合（此处同步的是平滑后的视觉位，误差较大）。
+      if (!(G.frz && G.frz.active) && !(plan && anyLive && G.last !== 'p')){
+        G.pp.p = [pos[0], pos[1], pos[2]];
+        _pn.set(0,0,1).applyQuaternion(pad.vq);
+        G.pp.n = vnorm([_pn.x, _pn.y, _pn.z]);
+      }
     }
 
     // ── 挥拍轨迹
@@ -3920,6 +3943,7 @@ const vrotAxis = (v, ax, ang)=>{
    局部 +X = Y × Z（右手系） */
 const _pqM = new THREE.Matrix4(), _pqX = new THREE.Vector3(), _pqY = new THREE.Vector3(), _pqZ = new THREE.Vector3();
 const _hv = new THREE.Vector3();                  // 临时：取拍头世界方向
+const _pn = new THREE.Vector3();                  // 临时：取拍面法线（物理拍同步用）
 function paddleQuat(nV, style, snap, extraRoll, opt){
   const pose  = (opt && opt.pose) || padPose(style, 'p', false);
   const roll  = pose.roll + (extraRoll || 0);
@@ -4993,6 +5017,7 @@ window.__PONG.faceAdjust = faceAdjust; window.__PONG.techOpt = techOpt;
 window.__PONG.recvTech = recvTech; window.__PONG.stageTech = stageTech;
 window.__PONG.aiParamObj = aiParamObj; window.__PONG.predict = predict;
 window.__PONG.aiPredictHit = aiPredictHit; window.__PONG.incomingTop = incomingTop;
+window.__PONG.G = G; window.__PONG.PH = PH; window.__PONG.TBL = T;   // 调试：游戏状态 / 球体参数 / 台面尺寸
 window.__PONG.setMatch = setMatch; window.__PONG.newMatch = newMatch;
 window.__PONG.ratePlayerShot = ratePlayerShot; window.__PONG.matchPickTarget = matchPickTarget;
 window.__PONG.pointTo = pointTo; window.__PONG.syncMatchUI = syncMatchUI;
