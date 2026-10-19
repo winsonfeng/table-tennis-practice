@@ -44,6 +44,25 @@
   #left{top:88px;left:12px;width:274px;max-height:calc(100vh - 230px);overflow-y:auto;z-index:5}
   #right{top:88px;right:12px;width:300px;max-height:calc(100vh - 112px);overflow-y:auto;z-index:5}
 
+  /* ── 看板收起 / 展开 ──
+     收起态：面板缩成小胶囊，只留开关按钮（隐藏其余子元素，不改 HTML 结构） */
+  .ptoggle{position:absolute;top:9px;right:9px;z-index:2;
+    display:flex;align-items:center;justify-content:center;gap:3px;
+    padding:3px 10px;border:2px solid var(--ink);border-radius:12px;
+    background:#fff6e0;color:var(--txt);font:inherit;font-size:11px;font-weight:900;
+    letter-spacing:.5px;cursor:pointer;box-shadow:0 2px 0 rgba(47,35,20,.45);
+    transition:background .12s}
+  .ptoggle:hover{background:#ffe3ad}
+  #left.collapsed,#right.collapsed{width:104px;height:40px;min-height:0;padding:0;
+    overflow:hidden;transition:width .16s ease,height .16s ease}
+  #left.collapsed>*:not(.ptoggle),#right.collapsed>*:not(.ptoggle){display:none}
+  /* 收起态按钮铺满胶囊 */
+  #left.collapsed .ptoggle,#right.collapsed .ptoggle{
+    top:0;right:0;bottom:0;left:0;border:0;border-radius:17px;
+    font-size:12.5px;box-shadow:none;background:#fff6e0}
+  /* 收起时首行 h3 的标题仍在流内会占位，用 margin 归零避免抖动 */
+  #left.collapsed h3,#right.collapsed h3{margin:0}
+
   /* ── 卡通小标题：橙色胶囊 ── */
   h3{font-size:11.5px;font-weight:900;color:#fff;letter-spacing:1.2px;margin:4px 0 10px;
     background:linear-gradient(180deg,#ffbb50,#ff8c1a);border:2px solid var(--ink);border-radius:999px;
@@ -171,6 +190,7 @@
 </div>
 
 <div id="left" class="panel">
+  <button class="ptoggle" id="tgl_left" title="收起 / 展开左侧看板">收起</button>
   <h3>落点目标 <span id="tgtTxt">中台</span></h3>
   <div class="grid9" id="g9"></div>
   <div class="note">直接在 3D 台面上<b>点击</b>任意位置即可自由指定落点。</div>
@@ -282,6 +302,7 @@
 </div>
 
 <div id="right" class="panel">
+  <button class="ptoggle" id="tgl_right" title="收起 / 展开右侧看板">收起</button>
   <h3>球体状态</h3>
   <div class="kv"><span class="k">球速</span><span class="n hl" id="r_v">—</span></div>
   <div class="bar"><i id="r_vb" style="width:0"></i></div>
@@ -3516,6 +3537,18 @@ const UI = {};
   .forEach(k=>UI[k]=$(k));
 ['k_comp','k_force','k_in','k_out','k_body','k_face','k_swing','k_autobest','k_autoserve','k_trail1'].forEach(k=>UI[k]=$(k));
 
+/* ── 左右看板收起 / 展开 ──
+   收起态由 CSS 完成（隐藏除开关外的子元素 + 面板缩成胶囊），这里只切 class 与按钮文案。
+   收起后 3D 画面露出更多（canvas 本就全屏，看板只是浮层），不影响物理与解算。 */
+function togglePanel(side){
+  const el  = $(side === 'left' ? 'left'  : 'right');
+  const btn = $(side === 'left' ? 'tgl_left' : 'tgl_right');
+  if (!el) return;
+  const collapsed = el.classList.toggle('collapsed');
+  if (btn) btn.textContent = collapsed ? (side === 'left' ? '参数 ▸' : '◂ 数据') : '收起';
+  // 注：canvas 是全屏独立层，看板只是浮层，收起不需要重设渲染尺寸
+}
+
 function bind(){
   const map = {
     s_power: v=>G.P.power=+v, s_spin: v=>G.P.spin=+v, s_side: v=>G.P.side=+v,
@@ -3542,6 +3575,9 @@ function bind(){
   $('b_pause').onclick = ()=>{ G.paused=!G.paused; toast(G.paused?'已暂停':'继续',''); };
   $('b_slow').onclick  = ()=>{ G.slow=!G.slow; toast(G.slow?'慢放 0.25x':'正常速度',''); };
   $('b_cam').onclick   = ()=>{ setCam(G.camMode+1); };
+  // 左右看板收起 / 展开（blur：避免按钮保持焦点后空格键误触发它）
+  $('tgl_left').onclick  = e=>{ e.currentTarget.blur(); togglePanel('left');  };
+  $('tgl_right').onclick = e=>{ e.currentTarget.blur(); togglePanel('right'); };
   // 击球定格 · 拍面微距
   $('b_grip_pen').onclick = ()=>{ setGrip('penhold');   toast('直拍握法','椭圆短柄 · 正手拍头朝外上 · 反手可横打'); };
   $('b_grip_shk').onclick = ()=>{ setGrip('shakehand'); toast('横拍握法','长柄 · 拍面更立'); };
