@@ -1950,7 +1950,7 @@ function applyShot(st, who, n, vp){
   const pad = who==='p' ? G.pp : G.ap;
   pad.n = n.slice(); pad.swing = 1; pad.swingDir = n.slice();
   pad.cd = 0.08; G.aiLock = null;
-  pad.hitAt = performance.now();
+  pad.hitAt = GT;
   pad.hitPos = [pad.p[0], pad.p[1], pad.p[2]];
   pad.hitN = n.slice();                 // 供随挥 / 手腕动画使用
   G.live = true; G.phase = 'play'; G.bounces = 0; G.last = who;
@@ -2294,7 +2294,7 @@ function computePlan(){
     ? solveAutoSafe(cd.c, -1, target, opt, G.comp)
     : manualPlan(cd.c, P);
   if (!sol){ G.plan = null; return; }
-  G.plan = { c:cd.c, t:cd.t, t0:cd.t, born:performance.now(), ...sol, bh,
+  G.plan = { c:cd.c, t:cd.t, t0:cd.t, born:GT, ...sol, bh,
              sx:ss.gx, latW:ss.latW,
              target:target.slice(), evPath: predict(sol.r.st, 2.2, 1, true) };
   // ── 物理拍同步到解算接触点（修复「球没碰到拍就打出去了」）：
@@ -2395,7 +2395,7 @@ function aiThink(dt){
     }
     let sol = solveAutoSafe(hit.c, 1, [tx,tz], opt, true);
     if (!sol){ moveTowards(pad.p, hit.c, (1.6+3.2*d)*dt); return; }
-    G.aiPlan = { c:hit.c.slice(), t:hit.t, t0:hit.t, born:performance.now(), ...sol, bh:aiBh,
+    G.aiPlan = { c:hit.c.slice(), t:hit.t, t0:hit.t, born:GT, ...sol, bh:aiBh,
                  sx:ssA.gx, latW:ssA.latW };
     pad.n = sol.n.slice();
   }
@@ -2928,14 +2928,16 @@ function updateCharacters(dt){
     let tc = null, rel = null;
     if (plan && anyLive && G.last !== who && plan.t !== undefined) tc = Math.max(0, plan.t);
     let relFromHit = false;
-    if (pad.hitAt){ const r0 = (performance.now()-pad.hitAt)/1000;
+    // rel（出手后经过）与 tc 同属动作时间轴 ⇒ 必须用游戏时钟 GT（见 loop 内 GT 说明）
+    // 注意用 `!== undefined` 而非真值判断：GT 从 0 起步，born/hitAt 取到 0 是合法值
+    if (pad.hitAt !== undefined){ const r0 = (GT-pad.hitAt);
                     if (r0 < 1.2){ rel = r0; relFromHit = true; } }
     // 触球时刻兜底：即便没命中 / 没有 hitAt，也必须走完「随挥 → 复位」，
     // 否则球拍会僵在接触点，等下一球时一次性弹回（0.5m 瞬移 = 抽搐）
-    if (tc !== null && tc <= 0.02){ if (!pad.tcZeroAt) pad.tcZeroAt = performance.now(); }
-    else pad.tcZeroAt = 0;
-    if (rel === null && pad.tcZeroAt){
-      const r2 = (performance.now() - pad.tcZeroAt)/1000;
+    if (tc !== null && tc <= 0.02){ if (pad.tcZeroAt === undefined) pad.tcZeroAt = GT; }
+    else pad.tcZeroAt = undefined;
+    if (rel === null && pad.tcZeroAt !== undefined){
+      const r2 = (GT - pad.tcZeroAt);
       if (r2 < 1.2) rel = r2;
     }
     // 触球前 0.28s 锁定挥拍目标：解算的接触点仍会微调，
@@ -3053,7 +3055,7 @@ function updateCharacters(dt){
 
     // ── 完整挥拍时间轴：预备 → 引拍 → 加速 → 触球 → 随挥 → 复位（不再是"粘着预测点不动"）
     let pos, nv = pad.n.slice();
-    const clock = performance.now()/1000;
+    const clock = GT;                                   // 待机微动：游戏时钟（慢放时同步变慢）
     // 待机微动：双频起伏 + 横向重心轻移。原来只有单频 2cm 摆动 ⇒ 球还没到就把拍
     // "架死"在那儿等，看着很僵。改成小跳步感的起伏，重心也跟着轻轻左右倒。
     // （屈膝已跟随拍位，所以这个起伏会连带把身体带动起来，不再是一根钉子）
@@ -4811,7 +4813,7 @@ function updateHuman(P, I, dt){
   const needXY = Math.hypot(grip[0]-P.stance[0], grip[2]-P.stance[1]);
   let lean = clamp(needXY*0.5, 0, 0.34);
   const toG = vnorm([grip[0]-P.stance[0], 0, grip[2]-P.stance[1]]);
-  const hipY = 0.93 - 0.32*I.crouch + Math.sin(performance.now()/1000*1.6)*0.007;  // 含重心微起伏
+  const hipY = 0.93 - 0.32*I.crouch + Math.sin(GT*1.6)*0.007;  // 含重心微起伏（游戏时钟）
   // 重心转移：引拍转腰时重心压向持拍侧的后脚，触球/随挥时压向前脚。
   // 缺了这一环，人物就像"钉在原地只摆手"——真实击球感的核心视觉线索。
   // coil<0（引拍）→ 移向 +R1（后脚）；coil>0（随挥）→ 移向 -R1（前脚）。
@@ -5012,11 +5014,20 @@ function wristSnap(tc, rel, bTop, bSide){
    13. 主循环
    ══════════════════════════════════════════════════════════════════ */
 let last = performance.now(), acc = 0, hudT = 0;
+/* ── 游戏时钟（秒）：按「缩放后」的 dt 累加，与球的飞行同一时基。
+   所有动作时间轴（plan.t 倒计时 / rel 出手后计时 / 待机微动 / 重心起伏）
+   必须用它，绝不能用 performance.now() 的真实时钟 ——
+   慢放 0.25× 时球只走 1/4 路程，真实时钟的倒计时却跑满速 ⇒
+   tc 在球还差 ~75% 路程时就归零：挥拍曲线直接跳到「触球帧」把拍钉在接触点，
+   而手臂还按片段时间轴在做引拍/随挥 ⇒ 手拍分离（用户反馈「手又脱离了」）。
+   UI 层的自动发球延时 / toast 仍用真实时钟（不受慢放影响，避免白等 4 倍时间）。 */
+let GT = 0;
 function loop(now){
   requestAnimationFrame(loop);
   let dt = Math.min(0.05, (now-last)/1000); last = now;
   if (G.paused) dt = 0;
   if (G.slow) dt *= 0.25;
+  GT += dt;
 
   applyMoveKeys(dt);                       // WASD 手动站位（上步 / 退台 / 左右）
 
@@ -5059,9 +5070,9 @@ function loop(now){
   }
 
   // 出手时机倒计时（解算时刻 → 现在）
-  if (G.plan && G.plan.born) G.plan.t = Math.max(0, G.plan.t0 - (performance.now()-G.plan.born)/1000);
-  if (G.aiPlan && G.aiPlan.born) G.aiPlan.t = Math.max(0, G.aiPlan.t0 - (performance.now()-G.aiPlan.born)/1000);
-  if (G.aiPlan && G.aiPlan.born) G.aiPlan.t = Math.max(0, G.aiPlan.t0 - (performance.now()-G.aiPlan.born)/1000);
+  // 倒计时必须用游戏时钟 GT（与 t0 同一时基），否则慢放时 tc 提前归零 ⇒ 手拍分离
+  if (G.plan && G.plan.born !== undefined) G.plan.t = Math.max(0, G.plan.t0 - (GT-G.plan.born));
+  if (G.aiPlan && G.aiPlan.born !== undefined) G.aiPlan.t = Math.max(0, G.aiPlan.t0 - (GT-G.aiPlan.born));
 
   // 自动发下一球：定格连续练习（勾选时）/ 比赛模式（进行中，无需定格）
   const matchAuto = (G.mode==='match' && !G.match.over);
