@@ -64,6 +64,20 @@
     background:linear-gradient(180deg,#ff92b4,#ff4d88);border:2px solid var(--ink);border-radius:999px;padding:2px 12px;
     box-shadow:0 3px 0 rgba(20,22,31,.35)}
 
+  /* ── 待发球提示：白色胶囊 + 呼吸光晕（参考图的底部提示条） ── */
+  #serveHint{position:fixed;bottom:98px;left:50%;z-index:5;
+    display:flex;align-items:center;gap:9px;opacity:0;pointer-events:none;
+    background:rgba(255,255,255,.95);border:3px solid var(--ink);border-radius:999px;padding:8px 22px;
+    font-size:15px;font-weight:900;color:#4a3623;white-space:nowrap;
+    box-shadow:0 4px 0 rgba(20,22,31,.35);transition:opacity .18s;
+    transform:translateX(-50%) scale(.94)}
+  #serveHint.show{opacity:1;transform:translateX(-50%) scale(1);animation:shpulse 1.5s ease-in-out infinite}
+  @keyframes shpulse{
+    0%,100%{box-shadow:0 4px 0 rgba(20,22,31,.35), 0 0 0 0 rgba(255,150,70,.42)}
+    50%    {box-shadow:0 4px 0 rgba(20,22,31,.35), 0 0 0 13px rgba(255,150,70,0)}}
+  #serveHint b{display:inline-block;background:linear-gradient(180deg,#ffd94f,#ffa415);border:2px solid var(--ink);
+    border-radius:9px;padding:1px 13px;color:#3a2405;font-weight:900;letter-spacing:1px}
+
   /* ── P1 悬浮标签（跟随玩家头顶） ── */
   #p1tag{position:fixed;z-index:4;pointer-events:none;display:none;transform:translate(-50%,-130%);
     background:#fff;border:2px solid var(--ink);border-radius:10px;padding:0 9px;
@@ -249,6 +263,7 @@
 <div id="clockChip"><span class="dot"></span><span id="clock">00:00</span></div>
 <div id="combo"><b id="combo_n">2</b><span>连击</span></div>
 <div id="p1tag">P1</div>
+<div id="serveHint"><b>空格</b> 发球</div>
 <div id="vibe"><span class="duck">🏓</span>第 <b id="rv_n">0</b> 球 · 最高连击 <b id="best_c">0</b></div>
 
 <div id="left" class="panel collapsed">
@@ -4323,6 +4338,10 @@ function updateHUD(){
   syncMatchUI();
 
   // 时机条（已按需求移除：底部「击球时机」面板不再显示；解算仍在内部照常进行）
+  {
+    const sh = $('serveHint');
+    if (sh) sh.classList.toggle('show', G.phase === 'ready');
+  }
   updateFreezeHUD();
 }
 
