@@ -263,7 +263,8 @@
 <div id="clockChip"><span class="dot"></span><span id="clock">00:00</span></div>
 <div id="combo"><b id="combo_n">2</b><span>连击</span></div>
 <div id="p1tag">P1</div>
-<div id="serveHint"><b>空格</b> 发球</div>
+<!-- 初始即待发球，默认带 show，避免初始化期（约 3~4s）看不到提示 -->
+<div id="serveHint" class="show"><b>空格</b> 发球</div>
 <div id="vibe"><span class="duck">🏓</span>第 <b id="rv_n">0</b> 球 · 最高连击 <b id="best_c">0</b></div>
 
 <div id="left" class="panel collapsed">
