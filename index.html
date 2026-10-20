@@ -1567,6 +1567,19 @@ let playerBH = 'rpb';                 // 我的反手方式：rpb=直拍横打 /
    h2u/h2o/h2f = 「收拍转到位」时的拍头朝向（随挥结束那一下拍头停在哪）
    rBack       = 引拍时拍柄相对触球拍型的外展量（rad，绕拍面法线）
    rEnd        = 随挥结束时拍柄转到的角度（rad，正手内旋 / 反手外展，符号由 bh 决定） */
+/* ── 动作骨架（每种技术各一套，写实克制基调）──────────────────────────
+   此前除 loop / lob 外，其余技术只是把「同一条弧线」按幅度缩放 ⇒ 观感雷同。
+   现把决定轨迹形状的系数全部外置，9 种技术各有独立的引拍位 / 发力路径 / 随挥终点：
+   bExt / bFwd = 引拍位的外扩量、前后位移（m；负 = 后引，反手符号自动镜像）
+   bY          = 引拍相对击球点 cy 的高度偏移（m；正 = 抬到球上方）
+   bYAbs       = 引拍绝对高度（m），给出时优先于 bY（拉球沉膝用）
+   bsA         = 后引幅度倍率（叠在风格 amp 上）
+   cExt / cY   = 贝塞尔控制点的横向外扩、高度偏移（m）—— 决定弧线弯向：
+                 cExt 大 = 横向绕球（拧拉）；cY 负 = 先沉后捞（弧圈）；cY 正 = 先抬后压（扣杀）
+   fExt / fUp / fDep = 随挥终点的横移、抬升、前伸（m；fUp 取负 = 收在身前下方，如搓 / 扣）
+   tFinG / tBakG     = 随挥 / 复位时长系数（相对风格 recover）
+   clipRate / clipSpan = 同一段动画片段按技术调制播放速率与截取相位区间
+                 （片段仅 2 段，靠速率 + 区间拉出不同节奏：扣杀快走满、搓球慢且只走前段） */
 const TECH = {
   loop : { name:'弧圈', hu:0.30, ho:0.88, hf:0.18, wrist:1.30, swing:1.10, face:'前倾压拍',
            // loft 实测：给 -0.10 时解算出的拍面法线仰角只有 -1.1°（几乎竖直=挡球姿态），
@@ -1575,41 +1588,84 @@ const TECH = {
            loft:-0.26, brush:6, pollFh:[1.05,-0.55,-0.75], pollBh:[0.10, 0.45,-0.70],
            h2u:0.88, h2o:-0.32, h2f:0.12, rBack:0.26, rEnd:0.62, faceDown:0.30,
            // 拉球的完整弧线：引拍沉到膝盖(右膝) → 经触球点 → 随挥收到眉眼(左眼)
-           // ftUp 0.16：抵消紧凑风格 swingG(勒布伦 0.72) 对随挥的压缩，保证收到眉眼
-           bsK:0.56, bsA:1.25, ftUp:0.16, coilG:1.25, ampFloor:0.95,
+           // fUp 0.46：抵消紧凑风格 swingG(勒布伦 0.72) 对随挥的压缩，保证收到眉眼
+           //    （原 ftUp 0.16 是叠加在 0.30 之上的增量，现合并为 fUp 绝对值）
+           bYAbs:0.56, bExt:0.30, bFwd:-0.20, bsA:1.25, cExt:0.14, cY:-0.10,
+           fExt:-0.34, fUp:0.46, fDep:0.36, tFinG:1.00, tBakG:1.00,
+           coilG:1.25, ampFloor:0.95, clipRate:1.00, clipSpan:[0.00,1.00],
            desc:'拍头朝外上 · 拍面前倾压拍 · 甩腕薄摩擦' },
   drive: { name:'攻球', hu:0.64, ho:0.76, hf:0.12, wrist:0.85, swing:0.90, face:'略前倾',
            loft:-0.14, pollFh:[1.00,-0.35,-0.55], pollBh:[0.20, 0.60,-0.55], faceDown:0.2,
            h2u:0.80, h2o:-0.12, h2f:0.14, rBack:0.20, rEnd:0.46,
+           // 动作骨架：身侧小幅后引、略低于球 → 略上前送（水平为主，撞击）
+           //           → 短促收在鼻尖前（不抬到眉眼，区别于弧圈）
+           bY:-0.12, bExt:0.24, bFwd:-0.16, bsA:1.00, cExt:0.05, cY:-0.04,
+           fExt:-0.22, fUp:0.18, fDep:0.26, tFinG:0.70, tBakG:0.70,
+           coilG:0.95, ampFloor:0.55, clipRate:1.25, clipSpan:[0.30,0.80],
            desc:'拍头朝外上 · 拍面前倾 · 撞击为主' },
   smash: { name:'扣杀', hu:0.94, ho:0.46, hf:0.08, wrist:0.55, swing:1.25, face:'前倾下压',
            loft:-0.34, pollFh:[0.85, 0.15,-0.25], pollBh:[0.30, 0.30,-0.35], faceDown:0.36,
            h2u:0.62, h2o:-0.28, h2f:0.06, rBack:0.22, rEnd:0.42,
+           // 动作骨架：引拍高举到头侧上方（全技术最高，bY 正偏移）
+           //           → 自上而下前压 → 随挥收在身前腰腹下方（fUp 取负）
+           bY: 0.34, bExt:0.26, bFwd:-0.10, bsA:1.00, cExt:0.10, cY: 0.12,
+           fExt:-0.14, fUp:-0.30, fDep:0.42, tFinG:0.85, tBakG:0.90,
+           coilG:1.05, ampFloor:0.85, clipRate:1.55, clipSpan:[0.10,0.95],
            desc:'拍头高举 · 拍面前倾 · 加速下压' },
   chop : { name:'搓球', hu:-0.30, ho:0.12, hf:1.00, wrist:0.16, swing:0.45, face:'后仰亮拍',
            loft: 0.55, brush:-7, dCap:2.8, pollFh:[0.45, 0.85,-0.20], pollBh:[0.15, 0.80,-0.35],
            h2u:-0.10, h2o:0.28, h2f:1.00, rBack:0.10, rEnd:0.16, faceDown:0,
+           // 动作骨架：引拍抬到球上方、亮拍后仰 → 自上而下前切薄
+           //           → 随挥极短、在球下方制动（tFin 最短档之一）
+           bY: 0.10, bExt:0.12, bFwd:-0.06, bsA:0.85, cExt:0.03, cY: 0.05,
+           fExt:-0.06, fUp:-0.16, fDep:0.14, tFinG:0.55, tBakG:0.60,
+           coilG:0.45, ampFloor:0.30, clipRate:0.85, clipSpan:[0.35,0.72],
            desc:'拍头朝前下探到球底 · 拍面后仰亮开 · 手腕固定切薄' },
   twist: { name:'拧拉', hu: 0.10, ho:0.62, hf:0.55, wrist:0.92, swing:0.80, face:'前倾·亮内侧',
            loft: 0.14, brush: 10, pollFh:[0.35, 0.55, 0.10], pollBh:[0.20, 0.50, 0.45], faceDown:0.1,
            h2u:0.58, h2o:0.34, h2f:0.30, rBack:0.34, rEnd:0.52,
+           // 动作骨架：前插到台内球侧后方、低贴台（bFwd 正向 = 往前探）
+           //           → 横向拧裹摩擦并上带（cExt 最大 = 弧线横向绕球）
+           //           → 随挥收在右前上小弧
+           bY:-0.04, bExt:0.20, bFwd: 0.06, bsA:0.95, cExt:0.20, cY:-0.06,
+           fExt:-0.26, fUp:0.26, fDep:0.22, tFinG:0.75, tBakG:0.80,
+           coilG:0.70, ampFloor:0.62, clipRate:1.35, clipSpan:[0.20,0.78],
            desc:'拍头朝外上抬到球侧后 · 手腕外展内旋 · 台内拧裹薄磨' },
   flick: { name:'挑打', hu: 0.52, ho:0.42, hf:0.28, wrist:0.70, swing:0.55, face:'略后仰托送',
            loft: 0.26, brush: 5, dCap:3.4, pollFh:[0.55, 0.42,-0.15], pollBh:[0.35, 0.45,-0.20], faceDown:0.06,
            h2u:0.72, h2o:0.14, h2f:0.26, rBack:0.18, rEnd:0.30,
+           // 动作骨架：引拍插入台面下方（明显低于球） → 自下向上快速挑起
+           //           → 短促收到胸前上方（幅度小、节奏快）
+           bY:-0.16, bExt:0.14, bFwd: 0.10, bsA:0.90, cExt:0.06, cY:-0.08,
+           fExt:-0.12, fUp:0.34, fDep:0.18, tFinG:0.65, tBakG:0.65,
+           coilG:0.60, ampFloor:0.48, clipRate:1.45, clipSpan:[0.40,0.85],
            desc:'拍头朝上插入台面 · 手腕前顶挑起 · 短促爆发' },
   lob  : { name:'高调', hu: 0.16, ho:0.72, hf:0.22, wrist:0.85, swing:1.05, face:'前倾·包球',
            loft: 0.60, brush: 12, dCap:3.6, pollFh:[0.20, 0.80,-0.10], pollBh:[0.15, 0.75,-0.15],
            h2u:0.34, h2o:0.76, h2f:0.16, rBack:0.28, rEnd:0.66, faceDown:0.18,
-           bsK:0.60, bsA:1.20, ftUp:0.12, coilG:1.20, ampFloor:0.90,
+           // 动作骨架：引拍沉到膝盖以下（全技术最低 bYAbs）
+           //           → 自下向上大幅拎起 → 随挥抬到头顶前上方（fUp 最大），节奏慢而长
+           bYAbs:0.52, bExt:0.28, bFwd:-0.22, bsA:1.20, cExt:0.18, cY:-0.16,
+           fExt:-0.40, fUp:0.60, fDep:0.30, tFinG:1.25, tBakG:1.15,
+           coilG:1.20, ampFloor:0.90, clipRate:0.75, clipSpan:[0.00,1.00],
            desc:'拍头下沉再向上拎 · 拍面压住球顶摩擦 · 高弧线深落点' },
   push : { name:'推挡', hu:0.96, ho:-0.20, hf:0.12, wrist:0.30, swing:0.40, face:'立拍',
            loft: 0.08, pollFh:[0.30, 0.55,-0.45], pollBh:[0.25, 0.60,-0.50], faceDown:0.02,
            h2u:0.92, h2o:-0.18, h2f:0.14, rBack:0.08, rEnd:0.14,
+           // 动作骨架：几乎无后引，立拍停在胸前 → 短促前送借力（撞击极少）
+           //           → 随挥极短、原地收回（全技术幅度最小档）
+           bY:-0.02, bExt:0.06, bFwd:-0.04, bsA:0.70, cExt:0.02, cY:-0.01,
+           fExt:-0.05, fUp:0.08, fDep:0.16, tFinG:0.50, tBakG:0.55,
+           coilG:0.42, ampFloor:0.24, clipRate:0.80, clipSpan:[0.35,0.70],
            desc:'拍头朝上偏内 · 拍面立起 · 借力' },
   block: { name:'挡球', hu:0.84, ho:-0.14, hf:0.22, wrist:0.25, swing:0.40, face:'立拍前倾',
            loft: 0.02, pollFh:[0.40, 0.70,-0.35], pollBh:[0.30, 0.65,-0.45], faceDown:0,
            h2u:0.86, h2o:-0.12, h2f:0.20, rBack:0.08, rEnd:0.14,
+           // 动作骨架：无后引，迎前立拍前倾 → 几乎不主动发力（纯借力）
+           //           → 随挥极短、随即复位（比推挡更被动，幅度全技术最小）
+           bY:-0.01, bExt:0.05, bFwd:-0.03, bsA:0.65, cExt:0.02, cY: 0.00,
+           fExt:-0.04, fUp:0.06, fDep:0.12, tFinG:0.45, tBakG:0.50,
+           coilG:0.38, ampFloor:0.20, clipRate:0.80, clipSpan:[0.35,0.68],
            desc:'拍头朝上 · 拍面立 · 借力快挡' },
 };
 /* 准备期（还没进入本板挥拍）的中性拍型：
@@ -1896,7 +1952,8 @@ function setBH(m){
     toast(playerBH === 'rpb' ? '反手：直拍横打' : '反手：推挡',
           playerBH === 'rpb' ? '手腕外展 · 拍背朝前击球 · 拍头朝外' : '正面推挡 · 拍头朝上偏内');
 }
-const TECH_KEYS = ['', 'loop', 'drive', 'smash', 'chop', 'twist', 'flick', 'lob', 'push'];
+/* 挡球此前不在此列 ⇒ 自动判定会打出 block，但界面上选不到它。补进来。 */
+const TECH_KEYS = ['', 'loop', 'drive', 'smash', 'chop', 'twist', 'flick', 'lob', 'push', 'block'];
 /* ── 发球类型（'auto' = 每球随机变化）── */
 function setServe(k){
   serveLock = (k && SERVES[k]) ? k : 'auto';
@@ -3497,18 +3554,23 @@ function updateCharacters(dt){
       const toC = vnorm(vsub(plan.c, [goalX, 1.0, goalZ]));
       idle[0] += toC[0]*0.10; idle[2] += toC[2]*0.10;
     }
-    // bsA：拉球后引更远（撑起"右膝→左眼"的完整弧线）
+    // bsA：后引幅度倍率（拉球后引更远，撑起"右膝→左眼"的完整弧线）
     const bsA = T.bsA || 1;
-    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -0.22*amp*bsA)), vmul(F, 0.08*amp*bsA))  // 横打：收到腹前偏非持拍侧
-                  : vadd(vadd(base.slice(), vmul(R1,  0.30*amp*bsA)), vmul(F,-0.20*amp*bsA)); // 正手：后引
+    // ── 技术专属动作骨架：引拍位由 bExt / bFwd 决定（原为硬编码常量 0.30 / -0.20 / -0.22 / 0.08）
+    //    正手 = 外扩 + 后引；反手（横打）自动镜像，且幅度更小（收在腹前）
+    const bE  = (T.bExt  !== undefined ? T.bExt  : 0.30) * amp * bsA;
+    const bF  = (T.bFwd  !== undefined ? T.bFwd  : -0.20) * amp * bsA;
+    const bEb = (T.bExtB !== undefined ? T.bExtB : 0.22) * amp * bsA;
+    const bFb = (T.bFwdB !== undefined ? T.bFwdB : 0.08) * amp * bsA;
+    const bs = bh ? vadd(vadd(base.slice(), vmul(R1, -bEb)), vmul(F, bFb))   // 横打：收到腹前偏非持拍侧
+                  : vadd(vadd(base.slice(), vmul(R1,  bE )), vmul(F, bF ));  // 正手：后引
     // 引拍高度必须贴着击球点（攻/拉/扣略低于球、搓/挑略高于球）。
     // 旧式写死 0.80m，而肩高 1.35m ⇒ 垂直差 0.65m，身体只会水平前倾补不了垂直差，
     // 前臂胶囊被拉长到 1.5 倍 —— 这就是"正手回球不像真实"的直接观感来源。
-    // 拉球 / 高调（T.bsK）：引拍真正沉到膝盖高度，弧线才有"从膝到眼"的落差。
+    // bYAbs：拉球 / 高调引拍真正沉到膝盖高度，弧线才有"从膝到眼"的落差。
     // 屈膝量已跟随拍位（见上）⇒ 蹲下去肩才跟得下来，手臂不会被拉成橡皮筋。
-    const bsY = (T.hf > 0.5) ? clamp(cy + 0.06, 0.92, 1.32)             // 搓/挑：球上方下切
-              : (T.bsK !== undefined) ? T.bsK                           // 拉球/高调：沉到膝盖
-                                      : clamp(cy - 0.14, 0.86, 1.46);    // 攻/扣：球下方上挥
+    const bsY = (T.bYAbs !== undefined) ? T.bYAbs
+              : clamp(cy + (T.bY !== undefined ? T.bY : -0.14), 0.86, 1.46);
     bs[1] = bsY - 0.06*crouch - (T.hf > 0.5 ? 0 : 0.10*clamp(P.spin/100,0,1));
     const pwK  = clamp(P.power/100, 0, 1);
     let swingS = 0, finG = 0, bkG = 0;   // 挥拍进度 / 随挥展开度 / 复位度（拍柄轨迹要用）
@@ -3526,8 +3588,13 @@ function updateCharacters(dt){
       const s = Math.pow(u, 1.7 + 0.9*pwK);
       swingS = s;
       // P2 比弦线更低、更偏持拍侧 ⇒ 拍头先沉向右下，再「右下→左上」捞过触球点
-      const cc = vadd(vmul(vadd(bs, cp.slice()), 0.5), vmul(R1, 0.14*sw*amp));
-      cc[1] -= 0.10;
+      // cExt / cY 来自技术表，决定这段弧线的「弯向」：
+      //   cExt 大（拧拉 0.20）= 绕到球侧后方横向裹；cY 负（弧圈 -0.10）= 先沉后捞；
+      //   cY 正（扣杀 +0.12）= 先抬到顶点再下压。
+      const cE = (T.cExt !== undefined ? T.cExt : 0.14) * sw * amp;
+      const cY = (T.cY   !== undefined ? T.cY   : -0.10);
+      const cc = vadd(vmul(vadd(bs, cp.slice()), 0.5), vmul(R1, cE));
+      cc[1] += cY;
       // P1 沿「远离触球点」方向外推：否则三次贝塞尔只是从当前位置单调趋近 cp，
       // 距离曲线一路下降 ⇒ 没有后引，观感又回到"推挡"（实测无后引时 d 单调递减）
       const away = vnorm(vsub(bs, cp));
@@ -3547,10 +3614,16 @@ function updateCharacters(dt){
       // 现收到肩侧前上（不过头顶），弧线意图保留且不穿头。
       // swingG：勒布伦短促发力、拍头自然弹回 ⇒ 随挥幅度收小。
       const Tsw = (T.swing || 1) * styleNow().swingG;
-      const ft  = vadd(vadd(hPos.slice(), vmul(nH, 0.36*Tsw)), vmul(R1, -0.34*Tsw*sw));
-      ft[1] += 0.30*Tsw;
-      // 拉球 / 高调：随挥收到下巴高度（"右膝→下颌"弧线的终点；超过头顶必绕头）
-      if (T.ftUp) ft[1] = Math.min(1.46, ft[1] + T.ftUp);
+      // fDep / fExt / fUp 来自技术表，决定随挥终点落在哪：
+      //   弧圈 = 前伸 0.36、横移到非持拍侧 0.34、抬升 0.46（收到眉眼）
+      //   扣杀 = 前伸 0.42、横移 -0.14、抬升 -0.30（收在身前下方）
+      //   搓球 = 前伸 0.14、横移 -0.06、抬升 -0.16（球下方制动）
+      const fD = (T.fDep !== undefined ? T.fDep : 0.36) * Tsw;
+      const fE = (T.fExt !== undefined ? T.fExt : -0.34) * Tsw * sw;
+      const fU = (T.fUp  !== undefined ? T.fUp  :  0.30) * Tsw;
+      const ft = vadd(vadd(hPos.slice(), vmul(nH, fD)), vmul(R1, fE));
+      // 上限 1.46m 兜底：随挥终点越过头顶会绕头 ⇒ 手臂 IK 反关节（「身体都扭曲了」）
+      ft[1] = Math.min(1.46, ft[1] + fU);
       // 随挥 0.38s + 复位 0.26s ⇒ rel≈0.64 就回到预备位。
       // 旧值（0.55 + 0.50 = 1.05s）来不及：对手来球在 rel≈0.6 就到了，
       // 于是「归位」和「引拍」挤在一起，1m 的归位位移把 7cm 的引拍完全淹没，
@@ -3559,7 +3632,11 @@ function updateCharacters(dt){
       // tBak 0.26→0.38：退台深球时 idle−ft 距离 ~1m，旧复位时长 0.16s ⇒ 峰值速度
       // ~9m/s，观感就是击球后「抽一下」（实测 spike 全部落在 rel≈0.36 复位段）。
       // 放缓到 0.235s 把峰值速度压到 ~6m/s；衔接由引拍坡道（fromPos）兜底，不受影响。
-      const rc = styleNow().recover, tFin = 0.38*rc, tBak = 0.38*rc;
+      // tFinG / tBakG 来自技术表 ⇒ 每种技术收拍快慢不同：
+      //   搓球 / 推挡 0.50 左右（短促制动）；弧圈 1.00；高调 1.25（慢而长的随挥）
+      const rc = styleNow().recover;
+      const tFin = 0.38*rc*(T.tFinG !== undefined ? T.tFinG : 1);
+      const tBak = 0.38*rc*(T.tBakG !== undefined ? T.tBakG : 1);
       const g  = Math.pow(clamp(rel/tFin,0,1), 0.55);      // 随挥展开
       const bk = clamp((rel-tFin)/tBak, 0, 1);             // 复位收回
       finG = g; bkG = bk;
@@ -4878,12 +4955,20 @@ function poseCharModel(P, J, I, dt){
   const cn = I.bh ? 'Penhold_Backhand_Loop' : (CLIP_OF[I.tech || 'drive'] || 'Forehand_Loop');
   M.clipName = cn;
   const CD = CLIP_CONTACT[cn] || 0.75, DUR = (TT_CLIP[cn] && TT_CLIP[cn].dur) || 1.2;
+  // ── 技术对同一段片段的调制：只有 2 段乒乓球片段（正手 / 反手横打），
+  //    靠「播放速率 + 相位截取区间」让 9 种技术拉出各自的节奏与幅度：
+  //      arc 全程（loop / lob）= 大引拍 + 长随挥；span 靠后（chop / push）= 小动作短收。
+  const TTk = TECH[I.tech || 'drive'] || TECH.drive;
+  const sp  = TTk.clipSpan || [0, 1];
+  const rate = TTk.clipRate || 1;
+  const cdR  = clamp(CD / DUR, 0, 1);                          // 接触点在片段中的相位
+  const fromR = Math.min(sp[0], cdR), toR = Math.max(sp[1], cdR);
   let t;
   if (I.tc !== null && I.tc > 0){
     const back = clamp((I.tc0||0.55)*1.15, 0.20, 0.75);      // 引拍在片段内占用的时长
-    t = clamp(CD * (1 - I.tc/back), 0, CD);
+    t = clamp((fromR + (cdR - fromR) * (1 - I.tc/back)) * DUR, 0, CD);
   } else if (I.rel !== null){
-    t = Math.min(CD + I.rel, DUR - 0.01);                     // 随挥走到片段尾即停
+    t = Math.min(CD + I.rel*rate, toR*DUR - 0.01);             // 随挥走到该技术的收拍相位即停
   } else {
     t = CLIP_IDLE[cn] || 0.20;
   }
@@ -5357,9 +5442,10 @@ function updateHuman(P, I, dt){
   // elbowIn：勒布伦「大臂基本不动、肘关节作为支点略微前顶」⇒ 把肘往身体收，
   // 摆动交给前臂与手腕，动作框架更小、出球更快。
   const pl0 = (I.pose && I.pose.poll) || [0.95,-0.40,-0.55];
-  // 拉球 / 高调：大臂必须参与摆动（"腰腿带大臂"），否则只剩小臂在抖 ⇒ 观感是
-  // 只有小臂发力。把「肘贴身」的收紧放松，让肘外扩、大臂跟着挥出去。
-  const elbowRelax = (I.tech && TECH[I.tech] && TECH[I.tech].bsK !== undefined) ? 0.30 : 1;
+  // 大弧线技术（弧圈 / 高调 / 扣杀）：大臂必须参与摆动（"腰腿带大臂"），否则
+  // 只剩小臂在抖 ⇒ 观感是只有小臂发力。把「肘贴身」的收紧放松，让肘外扩、大臂跟着挥出去。
+  const TTp = (I.tech && TECH[I.tech]) || null;
+  const elbowRelax = (TTp && (TTp.bYAbs !== undefined || TTp.bY >= 0.30)) ? 0.30 : 1;
   const pl  = [pl0[0]*(1 - styleNow().elbowIn*elbowRelax), pl0[1], pl0[2]];
   const pollA = vnorm(vadd(vadd(vmul(Rp, pl[0]), vmul(Fp, pl[1])), [0, pl[2], 0]));
   const elbow = ik2(shR, wrist, 0.295, 0.255, pollA);
