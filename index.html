@@ -1681,18 +1681,18 @@ const PREP_HEAD = { hu:0.15, ho:0.0, hf:0.95 };
             大臂固定 / 肘为支点 / 前臂+手腕「寸劲」、还原极快（衔接 ~0.3s/板）。
    邱党   = 近中台均衡，台内细腻，反手能减力贴防、防守转攻，动作略大于勒布伦。
    传统   = 中远台弧圈，引拍幅度大、靠腰腿发力（本次改动前的默认行为）。
-   球台端线在 |z|=1.37，故 idleZ 1.70 ⇒ 离台 ≈33cm。 */
+   球台端线在 |z|=1.37，故 idleZ 1.60 ⇒ 离台 ≈23cm。 */
 const STYLES = {
   lebrun: {
     name:'勒布伦式', desc:'贴台抢上升期 · 小框架寸劲 · 全横打',
-    idleZ: 1.70,        // 待机站位（离台 ≈33cm）
-    behind: 0.27,       // 身体落在接触点后方
+    idleZ: 1.60,        // 待机站位（离台 ≈23cm）
+    behind: 0.17,       // 身体落在接触点后方（贴台：几乎顶到击球点）
     // retreatMax 是 findContact 的合法击球区扩展（决定"能不能接到深球"），
     // 不能设太小：实测 0.50 ⇒ 深球 z>1.84 直接判无合法击球点而漏接，回合掉到 4~8 拍。
     // 真实勒布伦被逼退台也会退（只是质量下降），所以这里放宽到 0.85，
     // 而"不退台"由 posCap（身体站位真正后退多少）来体现。
     retreatMax: 0.85,
-    posCap: 0.22,       // 退台对「身体站位」的贡献封顶（贴台 ⇒ 明显小于传统 0.40）
+    posCap: 0.12,       // 退台对「身体站位」的贡献封顶（贴台 ⇒ 明显小于传统 0.24）
     crouchG: 1.15,      // 重心压低
     rise: -0.045,       // 抢上升期：击球时机提前（s）
     ampNear: 0.52,      // 贴台时的动作幅度（小框架）
@@ -1704,13 +1704,13 @@ const STYLES = {
   },
   qiu: {
     name:'邱党式', desc:'近中台均衡 · 台内细腻 · 能攻能防',
-    idleZ: 1.84, behind: 0.31, retreatMax: 0.95, posCap: 0.32, crouchG: 1.05,
+    idleZ: 1.72, behind: 0.21, retreatMax: 0.95, posCap: 0.18, crouchG: 1.05,
     rise: -0.022, ampNear: 0.70, ampFar: 1.00, recover: 0.80,
     wristG: 1.18, elbowIn: 0.20, swingG: 0.88,
   },
   classic: {
     name:'传统弧圈', desc:'中远台 · 大引拍 · 腰腿发力',
-    idleZ: 1.92, behind: 0.35, retreatMax: 1.10, posCap: 0.40, crouchG: 1.00,
+    idleZ: 1.80, behind: 0.24, retreatMax: 1.10, posCap: 0.24, crouchG: 1.00,
     rise: 0, ampNear: 1.00, ampFar: 1.00, recover: 1.00,
     wristG: 1.00, elbowIn: 0.00, swingG: 1.00,
   },
@@ -3415,9 +3415,12 @@ const swingLineP = mkLine(0xff6272, 46, false, 0.9);      // 玩家挥拍轨迹
 const swingLineA = mkLine(0x62a8ff, 46, false, 0.9);      // AI 挥拍轨迹
 
 function stanceBias(who){
-  // 手动站位偏移 + 对拉自动退台
+  // 手动站位偏移 + 对拉自动退台。
+  // 退台量必须与击球分支一致地用 posCap 封顶：否则对拉间隙身体一路退到
+  // idleZ + retreatMax（最高 +0.85m），下一板到位时人还远在台后 —— 「人离击球点太远」。
+  // （retreatMax 只负责 findContact 的合法击球区扩展，不影响身体站位。）
   const manual = who==='p' ? (G.stanceOff||0) : 0;
-  const retreat = counterLoopRetreat(who);
+  const retreat = Math.min(counterLoopRetreat(who), styleNow().posCap);
   return manual + retreat;
 }
 
