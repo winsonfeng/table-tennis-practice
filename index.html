@@ -3479,10 +3479,13 @@ function updateCharacters(dt){
       // 旧写法把整个退台(≤1.10m)都加到身后 ⇒ 身体离击球点最远 1.45m，远超
       // 臂长(0.55m)+前倾(0.55m)+送肩(0.13m)≈1.2m 的有效触及，手臂被拉成 2 倍（橡皮筋）。
       // 退台的「深」由 findContact 接触点变深 + 相机拉远来体现，身体只在身后留一小段即可。
-      // behind / posCap 由打法风格给：勒布伦贴台（身体几乎就在接触点正后方）
+      // behind / posCap 由打法风格给：勒布伦贴台（身体几乎就在接触点正后方）。
+      // 下限 1.30（端线 1.37 略内）：台内短球时脚步真正上到端线 ——
+      // 旧下限 1.42 把身体钉在端线后，短球（|cz|<1.1）时人离球 0.6m+，
+      // 只能靠手臂远远探过去够（慢放下尤其明显「人离击球点太远」）。
       const behind = styleNow().behind + Math.min(counterLoopRetreat(who), styleNow().posCap)
                           + (who==='p' ? (G.stanceOff||0) : 0);
-      goalZ = clamp(Math.abs(plan.c[2]) + behind, 1.42, 3.8);
+      goalZ = clamp(Math.abs(plan.c[2]) + behind, 1.30, 3.8);
       pad.hold = [goalX - latOff, goalZ];     // 锁定本拍站位（不含手动偏移 / 未带方向符号）
     } else if (pad.hold && rel !== null && rel < 1.00){
       // 出手后立刻把站位弹回待机位（0.5m / 5m·s⁻¹ ≈ 0.1s），而随挥还在向前展开
@@ -4674,8 +4677,10 @@ function move2(cur, tgt, step, dt){
   cur[0]+=dx/L*s; cur[1]+=dz/L*s;
 }
 /* 站位移动（绕开球台）：路径若穿过台面区，先横向绕到台侧 → 沿台侧纵向绕 → 再进入目标 */
-// 必须小于合法站位的最小深度（goalZ 下限 1.42），否则近台站位会被误判为"要穿桌"而反复绕行
-const TBL_HX = 0.82, TBL_HZ = 1.40;                 // 台面 0.7625×1.3725 + 极小余量
+// 必须小于合法站位的最小深度（goalZ 下限 1.30），否则短球上步到端线附近会被
+// 误判为"要穿桌"而横向绕行（人上不了步，只能远远伸手够球）。
+// 台面实体到 1.3725，但髋部(0.93)高于台面(0.76)、腿在台面下方通行 —— 端线附近无实体碰撞。
+const TBL_HX = 0.82, TBL_HZ = 1.26;
 function segCrossTable(a, b){
   for (let i=0;i<=10;i++){
     const t = i/10, x = a[0]+(b[0]-a[0])*t, z = a[1]+(b[1]-a[1])*t;
@@ -5402,7 +5407,17 @@ function updateHuman(P, I, dt){
 
   const coil = I.coil;
   const Rp = vrotY(R1, coil), Fp = vrotY(F, coil);
-  const chestOf = h => vadd(vadd(h, [0, 0.33, 0]), vmul(Rp, 0.05*coil*(I.bh?-1:1))); // 转腰时躯干侧倾
+  /* 躯干前倾（探向击球方向）：够远球 / 台内短球时上半身压向前 —— 真实击球
+     「重心跟着球走」的核心视觉线索。倾角按 拍柄-站位 水平距离 needXY 缩放，
+     引拍期拍在身后时保持朝前倾（不跟着后仰）。旋转而非平移：
+     chest-hip 恒 0.33 ⇒ 脊柱/头/肩只是整体前倾，不拉伸。 */
+  const tGfwd = (toG[0]*F[0] + toG[2]*F[2]) > 0.15 ? toG : F;
+  const pitchA = clamp((needXY - 0.22) * 1.1, 0, 0.42);
+  const chestOf = h => {
+    const c0 = vadd(vadd(h, [0, 0.33, 0]), vmul(Rp, 0.05*coil*(I.bh?-1:1))); // 转腰时躯干侧倾
+    const sA = Math.sin(pitchA)*0.33;
+    return vadd(c0, [tGfwd[0]*sA, (Math.cos(pitchA)-1)*0.33, tGfwd[2]*sA]);
+  };
   for (let it=0; it<3; it++){
     const chest  = chestOf(hip);
     const shBase = vadd(chest, [0, 0.09, 0]);
