@@ -295,10 +295,10 @@
   <div class="row"><label>侧向摩擦</label><input type="range" id="s_side" min="-100" max="100" value="0"><span class="v" id="v_side"></span></div>
   <div class="row"><label>击球时机</label><input type="range" id="s_time" min="-80" max="80" value="0"><span class="v" id="v_time"></span></div>
   <div class="row"><label>击球高度</label><input type="range" id="s_hp" min="80" max="132" value="102"><span class="v" id="v_hp"></span></div>
-  <div class="row"><label>拍面倾角</label><input type="range" id="s_tilt" min="-25" max="25" value="0"><span class="v" id="v_tilt"></span></div>
-  <div class="row"><label>拍面转向</label><input type="range" id="s_face" min="-25" max="25" value="0"><span class="v" id="v_face"></span></div>
+  <div class="row"><label>拍面倾角</label><input type="range" id="s_tilt" min="-85" max="85" value="0"><span class="v" id="v_tilt"></span></div>
+  <div class="row"><label>拍面转向</label><input type="range" id="s_face" min="-85" max="85" value="0"><span class="v" id="v_face"></span></div>
   <div class="row wide"><label>拍柄方向</label><input type="range" id="s_roll" min="-180" max="180" step="1" value="0"><span class="v" id="v_roll"></span></div>
-  <div class="note">拍面是三轴可调的：<b>倾角</b>（负=前倾压拍 / 正=后仰亮拍）、<b>转向</b>（负=左转 / 正=右转）、<b>拍柄方向</b>（绕拍面法线自转，改变<b>拍头 / 拍柄朝向</b>，如朝上 · 朝外 · 朝前；只改姿态，不改变拍面法线与出球）。<br>定格中用 <b>Shift + 拖动</b> 调倾角/转向、<b>Shift + 滚轮</b> 转拍柄方向；<b>G</b> 一键归零。</div>
+  <div class="note">拍面是三轴可调的：<b>倾角</b>（负=前倾压拍 / 正=后仰亮拍）、<b>转向</b>（负=左转 / 正=右转）、<b>拍柄方向</b>（绕拍面法线自转，改变<b>拍头 / 拍柄朝向</b>，如朝上 · 朝外 · 朝前；只改姿态，不改变拍面法线与出球）。<br>定格中 <b>Shift + 左键拖动</b> 调倾角/转向（可大角度自由转）、<b>Shift + 右键拖动</b> 或 <b>Shift + 滚轮</b> 转拍柄方向；<b>G</b> 一键归零。</div>
 
   <h3>球拍物理属性</h3>
   <div class="row wide"><label>胶皮摩擦 μ</label><input type="range" id="s_mu" min="5" max="60" value="45"><span class="v" id="v_mu"></span></div>
@@ -456,7 +456,7 @@
 
 <div id="frzbar" class="hidden"><span class="dot"></span><span id="frzbarTxt"></span></div>
 <div id="chainbar" class="chainbar"><span class="lbl">技术链路</span><span id="chainTxt">—</span></div>
-<div id="tip">左/右键<b>拖动</b>旋转视角 · 滚轮缩放 · <b>Q/E</b> 环绕 · <b>F</b> 切视角 · 左键<b>点击</b>台面指定落点 · <b>Z</b> 击球定格 · 定格中 <b>Shift+拖动</b> 调拍面 · <b>G</b> 拍面归零 · <b>B</b> 反手横打/推挡 · <b>M</b> 自动/手动</div>
+<div id="tip">左/右键<b>拖动</b>旋转视角 · 滚轮缩放 · <b>Q/E</b> 环绕 · <b>F</b> 切视角 · 左键<b>点击</b>台面指定落点 · <b>Z</b> 击球定格 · 定格中 <b>Shift+左键拖动</b> 调倾角/转向 · <b>Shift+右键拖动</b> 调拍柄方向 · <b>G</b> 拍面归零 · <b>B</b> 反手横打/推挡 · <b>M</b> 自动/手动 · <b>V</b> 音效开/关</div>
 
 <div id="toast"></div>
 <div id="err"><b>Three.js 加载失败</b><span>该页面需要联网加载 Three.js（CDN）。请检查网络后刷新，或改用本地 three.module.js。</span></div>
@@ -582,6 +582,130 @@ function hitPaddle(st, pad, info){
   if (info){ info.Jn=Jn; info.Jt=Jt; info.vn=vn; info.slip=us; info.sp=sp; info.Jmax=Jmax; info.Jslip=Jslip; }
   return true;
 }
+
+/* ══ 击球声效（Web Audio 实时合成 · 物理驱动）═══════════════════════
+   全部音色由碰撞物理量实时合成，无音频文件：
+   · 撞击声 = 底板 thump（低频 sweep，随撞击力度升频） + 胶皮 pop（带通噪声）
+              + 高频 click（大力才出现的拍边脆响）
+   · 摩擦声 = 带通噪声 × 低频 AM「颗粒咬球」调制：
+              - 滑移速度 slip → 摩擦音量/拖尾；咬住比例 Jt/Jmax → 摩擦存在感
+              - 摩擦剂 grip（胶皮粘性）→ 音色：粘性=颗粒粗/频带低/调制深（沙沙咬球），
+                涩性=细密高频（咝声顺滑）
+   · 台面弹跳 = 木质「嗒」（1kHz→480Hz sweep + 高频噪声）
+   · 擦网/落地 = 闷响，音量随撞击速度
+   总线挂动态压缩器防爆音；V 键开关；首次按键/点击解锁 AudioContext */
+const SFX = (()=>{
+  let ctx=null, master=null, noiseBuf=null, enabled=true;
+  const lastAt={};
+  function ensure(){
+    if (ctx) return true;
+    const AC = window.AudioContext||window.webkitAudioContext; if (!AC) return false;
+    ctx = new AC();
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value=-16; comp.knee.value=18; comp.ratio.value=7;
+    comp.attack.value=0.002; comp.release.value=0.12;
+    master = ctx.createGain(); master.gain.value = 0.55;
+    master.connect(comp); comp.connect(ctx.destination);
+    const sr=ctx.sampleRate, buf=ctx.createBuffer(1,sr,sr), d=buf.getChannelData(0);
+    for (let i=0;i<sr;i++) d[i]=Math.random()*2-1;
+    noiseBuf=buf; return true;
+  }
+  function unlock(){ if (ensure() && ctx.state==='suspended') ctx.resume(); }
+  function throttle(key,ms){ const n=performance.now(); if (lastAt[key] && n-lastAt[key]<ms) return false; lastAt[key]=n; return true; }
+  function env(g,t,peak,att,dec){
+    peak=Math.max(0.0012,peak);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(peak,t+att);
+    g.gain.exponentialRampToValueAtTime(0.0008,t+att+dec);
+  }
+  function noise(t,dur){ const s=ctx.createBufferSource(); s.buffer=noiseBuf; s.loop=true; s.start(t); s.stop(t+dur); return s; }
+
+  /* 击球：info 来自 hitPaddle（vn 法向撞击速度 / slip 滑移 / Jt·Jmax 咬球比例），grip=摩擦剂 */
+  function paddleHit(info, grip){
+    if (!enabled || !ensure() || !throttle('hit',30)) return;
+    const t = ctx.currentTime + 0.001;
+    const gripN = Math.max(0, Math.min(1, grip==null?0.7:grip));
+    const impact = Math.min(12, Math.abs((info&&info.vn)||4));
+    const slip   = Math.min(15, (info&&info.slip)||0);
+    const Jmax   = (info&&info.Jmax)||0, Jt = (info&&info.Jt)||0;
+    const bite   = Jmax>1e-6 ? Math.min(1, Jt/Jmax) : 0;   // 胶皮咬住滑移的比例
+    const fri    = Math.min(1, slip/12);                    // 摩擦强度
+    const g0     = Math.pow(impact/12, 0.62);               // 幂律响度（贴听感）
+    /* a) 底板 thump */
+    { const o=ctx.createOscillator(), g=ctx.createGain();
+      const f0=130+impact*22;
+      o.frequency.setValueAtTime(f0*1.6,t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(40,f0*0.55), t+0.05);
+      env(g,t,0.45*g0,0.001,0.045+impact*0.004);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t+0.13); }
+    /* b) 胶皮 pop */
+    { const src=noise(t,0.07), bp=ctx.createBiquadFilter(), g=ctx.createGain();
+      bp.type='bandpass'; bp.frequency.value=950+impact*90; bp.Q.value=1.1;
+      env(g,t,0.85*g0,0.0008,0.02+impact*0.0035);
+      src.connect(bp); bp.connect(g); g.connect(master); }
+    /* c) 高频 click（大力拍边脆响） */
+    { const src=noise(t,0.02), hp=ctx.createBiquadFilter(), g=ctx.createGain();
+      hp.type='highpass'; hp.frequency.value=5200;
+      env(g,t,0.42*g0*g0,0.0005,0.006);
+      src.connect(hp); hp.connect(g); g.connect(master); }
+    /* d) 摩擦层：粘性胶皮颗粒粗/带通低/调制深，涩性细密高频 */
+    if (fri > 0.04 && (bite > 0.12 || fri > 0.25)){
+      const dur = 0.028 + fri*0.075 + bite*0.02;
+      const src = noise(t, dur+0.06);
+      const bp = ctx.createBiquadFilter(), g = ctx.createGain();
+      const am = ctx.createOscillator(), amg = ctx.createGain(), carrier = ctx.createGain();
+      bp.type='bandpass';
+      bp.frequency.value = 3000 - gripN*1300 + fri*400;
+      bp.Q.value = 1.4 - gripN*0.7;
+      am.frequency.value = 55 + gripN*70;
+      amg.gain.value = 0.28 + gripN*0.42;
+      carrier.gain.value = 1;
+      am.connect(amg); amg.connect(carrier.gain);
+      env(g, t, (0.16+0.5*fri)*(0.35+0.75*bite), 0.004, dur);
+      src.connect(bp); bp.connect(carrier); carrier.connect(g); g.connect(master);
+      am.start(t); am.stop(t+dur+0.06);
+    }
+  }
+  /* 台面弹跳：木台「嗒」 */
+  function tableBounce(info){
+    if (!enabled || !ensure() || !throttle('tb',25)) return;
+    const t=ctx.currentTime+0.001;
+    const impact=Math.min(9, Math.abs((info&&info.vn)||1.5));
+    const g0=Math.pow(impact/9,0.6)*0.5;
+    const o=ctx.createOscillator(),g=ctx.createGain();
+    o.frequency.setValueAtTime(1050,t); o.frequency.exponentialRampToValueAtTime(480,t+0.02);
+    env(g,t,g0,0.0006,0.018);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+0.06);
+    const src=noise(t,0.03),bp=ctx.createBiquadFilter(),g2=ctx.createGain();
+    bp.type='bandpass'; bp.frequency.value=2100; bp.Q.value=1.2;
+    env(g2,t,g0*0.7,0.0005,0.012);
+    src.connect(bp); bp.connect(g2); g2.connect(master);
+  }
+  /* 擦网：闷响 */
+  function netTouch(v){
+    if (!enabled || !ensure() || !throttle('net',60)) return;
+    const t=ctx.currentTime+0.001;
+    const g0=0.28*Math.min(1, Math.abs(v||2)/6);
+    const src=noise(t,0.07), lp=ctx.createBiquadFilter(), g=ctx.createGain();
+    lp.type='lowpass'; lp.frequency.value=650;
+    env(g,t,g0,0.002,0.05);
+    src.connect(lp); lp.connect(g); g.connect(master);
+  }
+  /* 落地：低沉 thud */
+  function floorHit(v){
+    if (!enabled || !ensure() || !throttle('fl',80)) return;
+    const t=ctx.currentTime+0.001;
+    const g0=0.32*Math.min(1, Math.abs(v||3)/8);
+    const o=ctx.createOscillator(),g=ctx.createGain();
+    o.frequency.setValueAtTime(170,t); o.frequency.exponentialRampToValueAtTime(70,t+0.07);
+    env(g,t,g0,0.002,0.08);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+0.16);
+  }
+  function toggle(){ enabled=!enabled; return enabled; }
+  const api = { unlock, paddleHit, tableBounce, netTouch, floorHit, toggle, get enabled(){return enabled;} };
+  window.SFX = api;                     // 暴露到全局：控制台调试 / 自动化测试用
+  return api;
+})();
 
 /* ── 前向轨迹预测（含台面弹跳、撞网、出界、落地） ── */
 function predict(st0, maxT, maxBounces, collect){
@@ -919,8 +1043,8 @@ function techOpt(P, st, bh, c, lock){
 }
 /* 设置拍面微调（滑块 / Shift 拖动共用） */
 function setFace(tilt, face){
-  G.P.tilt = clamp(Math.round(+tilt*10)/10, -25, 25);
-  G.P.face = clamp(Math.round(+face*10)/10, -25, 25);
+  G.P.tilt = clamp(Math.round(+tilt*10)/10, -85, 85);
+  G.P.face = clamp(Math.round(+face*10)/10, -85, 85);
   if (UI.s_tilt) UI.s_tilt.value = G.P.tilt;
   if (UI.s_face) UI.s_face.value = G.P.face;
   syncLabels();
@@ -1894,10 +2018,10 @@ function counterLoopQualityBoost(){
   if (!cl || !cl.active) return { powerBoost:0, spinBoost:0 };
   const enableBoost = (G.P.clBoost !== undefined) ? G.P.clBoost / 100 : 1.0;
   if (enableBoost <= 0) return { powerBoost:0, spinBoost:0 };
-  // 从第3板起开始加质量
-  const boardsAfterWarmup = Math.max(0, cl.hits - 2);
-  const powerBoost = clamp(boardsAfterWarmup * 2, 0, 14) * enableBoost * clBoostScale;   // 力量最多 +14%
-  const spinBoost  = clamp(boardsAfterWarmup * 3, 0, 20) * enableBoost * clBoostScale;   // 旋转最多 +20%
+  // 从第2板起开始加质量（原为第3板），让比赛模式更早进入"越拉越冲越转"
+  const boardsAfterWarmup = Math.max(0, cl.hits - 1);
+  const powerBoost = clamp(boardsAfterWarmup * 2.4, 0, 20) * enableBoost * clBoostScale;   // 力量最多 +20%（原 +14）
+  const spinBoost  = clamp(boardsAfterWarmup * 3.6, 0, 30) * enableBoost * clBoostScale;   // 旋转最多 +30%（原 +20）
   return { powerBoost, spinBoost };
 }
 
@@ -2556,25 +2680,34 @@ const MATCH_ZONES = [
 /* 比赛模式：以最可能得分为目标选落点（落点不固定；胜率高可连续打同一点） */
 function matchPickTarget(){
   const win = G.match.zoneWin, last = G.match.lastZone;
+  const lastSide = (last!=null) ? Math.sign(MATCH_ZONES[last].x||0) : 0;
   const vals = MATCH_ZONES.map((z,i)=>{
     const wr = win[i];
     let v = z.d*0.55 + wr*0.45;                  // 基础难度 + 历史胜率
     if (i === last && wr < 0.66) v -= 0.22;      // 低胜率则强制变换，避免死磕一点
-    v += (Math.random()-0.5)*0.05;               // 轻微抖动，保证“不固定”
+    // 变线：偏向打"上一板反侧"，制造大角度调动与线路变化
+    if (lastSide !== 0 && Math.sign(z.x||0) === -lastSide) v += 0.20;
+    else if (lastSide !== 0)                      v -= 0.05;
+    if (z.z <= -1.05) v += 0.10;                 // 深区（压底线）略偏好，增加侵略性
+    v += (Math.random()-0.5)*0.06;               // 抖动，保证“不固定”
     return v;
   });
   const order = vals.map((v,i)=>({i,v})).sort((a,b)=>b.v-a.v);
   let pick;
   const top = order[0], wrTop = win[top.i];
-  if (wrTop >= 0.66 && Math.random() < 0.6){
-    pick = top.i;                                // 高胜率：可连续攻同一点
+  if (wrTop >= 0.66 && Math.random() < 0.45){
+    pick = top.i;                                // 高胜率可连续攻同一点（概率调低，更爱变换）
   } else {
-    const pool = order.filter(o => o.i !== last).slice(0,3);  // Top3（排除刚打过的）
-    pick = (pool[(Math.random()*pool.length)|0] || top).i;    // 高得分优先 + 落点不固定
+    let pool = order.filter(o => o.i !== last).slice(0,3);  // Top3（排除刚打过的）
+    if (Math.random() < 0.30){                    // 偶尔强攻深角
+      const deep = order.filter(o => o.i !== last && MATCH_ZONES[o.i].z <= -1.05);
+      if (deep.length) pool = deep;
+    }
+    pick = (pool[(Math.random()*pool.length)|0] || top).i;
   }
   G.match.lastZone = pick;
   const z = MATCH_ZONES[pick];
-  const jx = (Math.random()-0.5)*0.10, jz = (Math.random()-0.5)*0.08;
+  const jx = (Math.random()-0.5)*0.18, jz = (Math.random()-0.5)*0.13;   // 加大抖动 → 落点更散、变线更明显
   G.target = [clamp(z.x+jx,-0.70,0.70), clamp(z.z+jz,-1.32,-0.16)];
   syncTarget();
 }
@@ -2744,8 +2877,8 @@ function strokeSide(cx, who, curX, availT){
    不做任何自动求解与补偿（只预测线路，落不落台由你自己负责） */
 function manualNormal(P){
   const tilt = (P.tilt||0)*Math.PI/180, face = (P.face||0)*Math.PI/180;
-  const loft = clamp(tilt + 0.10, -0.45, 1.00);    // 默认抬 5.7°，不至于一上来就下网
-  const yaw  = clamp(face, -1.00, 1.00);
+  const loft = clamp(tilt + 0.10, -1.45, 1.45);    // 放宽到 ±83°：可大角度翻拍面
+  const yaw  = clamp(face, -1.45, 1.45);            // 转向 ±83°：拍面朝向自由变换
   return { n: shotDir(-1, yaw, loft), loft, yaw };
 }
 function manualPlan(c, P){
@@ -2961,10 +3094,15 @@ addEventListener('pointermove', e=>{
   const dx = e.clientX-lastX, dy = e.clientY-lastY;
   if (dragging){
     dragMoved += Math.abs(dx) + Math.abs(dy);
-    // 定格中 Shift+拖动 → 直接调拍面；否则左/右键拖动都是环绕视角
-    if (e.shiftKey && G.frz && G.frz.active && UI.s_tilt && UI.s_face){
-      setFace(G.P.tilt - dy*0.20, G.P.face + dx*0.20);
-      toastFreezeFace();
+    // 定格中 Shift+拖动 → 调拍面（三轴都能拖）
+    if (e.shiftKey && G.frz && G.frz.active){
+      if (dragBtn === 2){                                   // 右键拖动 → 拍柄方向（绕拍面法线自转）= 第 3 轴
+        setRoll(G.P.roll + dx*0.6);
+        toastFreezeFace();
+      } else {                                              // 左键拖动 → 倾角(dy) + 转向(dx) = 前两轴
+        setFace(G.P.tilt - dy*0.20, G.P.face + dx*0.20);
+        toastFreezeFace();
+      }
     } else {
       const cc = CAM[G.camMode], tl = cc.type === 'macro' ? Math.PI : 1.3;
       cc.th = clamp(cc.th - dx*0.006, -tl, tl);
@@ -3011,6 +3149,7 @@ renderer.domElement.addEventListener('click', e=>{
 });
 
 addEventListener('keydown', e=>{
+  SFX.unlock();                             // 首次按键解锁音频
   keys[e.code] = true;
   if (e.code === 'Space'){ e.preventDefault();
     if (G.frz && G.frz.active) frzApply();            // 定格中：空格 = 出球继续
@@ -3034,10 +3173,12 @@ addEventListener('keydown', e=>{
   if (e.key === 'z' || e.key === 'Z'){ setFrzMode(!G.frz.on); }
   if (e.key === 'b' || e.key === 'B'){ setBH(playerBH === 'rpb' ? 'push' : 'rpb'); }
   if (e.key === 'm' || e.key === 'M'){ setAuto(!G.auto); }
+  if (e.key === 'v' || e.key === 'V'){ const on = SFX.toggle(); toast(on?'击球音效：开':'击球音效：静音',''); }
   if (e.key === 'x' || e.key === 'X'){ if (G.frz && G.frz.active){ frzAuto(); toast('已求解最优','时机 / 角度 / 力度已自动设置'); } }
   if (e.key >= '1' && e.key <= '8'){ const i = +e.key - 1; if (i < CAM.length) setCam(i); }
 });
 addEventListener('keyup', e=>{ keys[e.code] = false; });
+addEventListener('pointerdown', ()=>SFX.unlock());   // 首次点击/触摸解锁音频
 addEventListener('blur', ()=>{ for (const k in keys) keys[k] = false; });
 
 /* 手动移动：W/S 上步·退台，A/D 左右移动（叠加在自动站位之上） */
@@ -3115,6 +3256,7 @@ function tryPaddle(pad, side, who, prev){
   const contact = [cx, cy, cz, st[3], st[4], st[5], st[6], st[7], st[8]];
   const stc = Float64Array.from(contact);
   if (!hitPaddle(stc, padObj, info)) return false;
+  SFX.paddleHit(info, P.grip);            // 击球声：按真实冲量/滑移/摩擦剂合成
   G.lastHit = { who, info, contact, n:n.slice(), vp };
   // ── 击球定格：在接触瞬间冻结（球停在拍面上），进入拍面微距分析
   if (who === 'p' && G.frz && G.frz.on && !G.frz.active){ frzEnter(contact, info); return true; }
@@ -3146,6 +3288,7 @@ function physics(dt){
       if (on){
         G.st[1] = T.top + PH.r;
         const info = {}; bounceTable(G.st, info);
+        SFX.tableBounce(info);              // 台面弹跳声（按法向速度）
         G.lastBounce = { x:G.st[0], z:G.st[2], info };
         onBounce(G.st[0], G.st[2]);
         if (!G.live) return;
@@ -3155,6 +3298,7 @@ function physics(dt){
     if (!G.netTouch && ((prev[2]>0 && G.st[2]<=0) || (prev[2]<0 && G.st[2]>=0))){
       if (G.st[1] - PH.r < T.top + T.netH && Math.abs(G.st[0]) <= T.netW/2){
         G.netTouch = true;
+        SFX.netTouch(Math.hypot(G.st[3],G.st[4],G.st[5]));   // 擦网闷响
         const wasServe = G.needOwn;
         G.st[5] *= -0.25; G.st[3] *= 0.35; G.st[4] *= 0.45;
         G.st[6] *= 0.4; G.st[7] *= 0.4; G.st[8] *= 0.4;
@@ -3167,6 +3311,7 @@ function physics(dt){
     }
     // ── 落地 / 远端出界
     if (bottom <= 0.02){
+      SFX.floorHit(G.st[4]);                // 落地闷响
       if (G.bounces === 0) pointTo(G.last==='p'?'a':'p', '出界未落台');
       else                 pointTo(G.last, '对手未接到');
       return;
@@ -3270,19 +3415,39 @@ function frzResolve(){
   G.st[0] = c[0]; G.st[1] = c[1]; G.st[2] = c[2];   // 球跟随时机偏移后的接触点（拍面/分析点同步）
   const stX0 = (VIS.stance && isFinite(VIS.stance[0])) ? VIS.stance[0] : 0.30;
   const opt = techOpt(P, c, (c[0] - stX0) < -0.06, c);
-  const sol = G.auto
-    ? faceAdjust(c, solveShot(c, -1, safeAim(G.target), P, G.comp), safeAim(G.target), P, G.comp, opt)
-    : manualPlan(c, P);
+  // 手动微调拍面（Shift+拖动 / 滑块）：定格是"试探"工具，必须如实把拍面朝向与预测线
+  // 显示出来——哪怕该拍面会导致不过网 / 出界，也照常展示（f.ok 仅作红/绿提示），
+  // 不能像实战那样把"不过网"的解静默吞掉；否则拖动时拍面网格与预测线纹丝不动。
+  const manualOn = (Math.abs(P.tilt) + Math.abs(P.face)) >= 0.01;   // 度；任一轴离开 0 即视为手动
+  let sol;
+  if (manualOn){
+    const m = manualNormal(P);                       // 直接由 tilt/face 算出拍面法线
+    const drive = -1.5 + clamp(P.power,0,100)/100*10;
+    const r = evalShot(c, -1, m.yaw, m.loft, drive, 0, 0, P);
+    const vp = r ? r.vp : m.n.map(x => x*drive);      // 非法出球时给沿法线兜底速度，避免渲染崩溃
+    sol = { s:0, r: r || undefined, loft:m.loft, yaw:m.yaw, drive, drive0:drive, n:m.n,
+            vp, st: Float64Array.from(c), ev: r ? r.ev : null,
+            info: r ? r.info : null, compensated:false, faceOn:true, manual:true };
+  } else {
+    sol = G.auto
+      ? faceAdjust(c, solveShot(c, -1, safeAim(G.target), P, G.comp), safeAim(G.target), P, G.comp, -1)
+      : manualPlan(c, P);
+  }
   f.tech = opt.tech;
   f.sol = sol;
-  if (sol){
+  if (sol && sol.r){
     f.evPath = predict(sol.r.st, 2.2, 1, true);
     const ev = sol.r.ev;
     f.ok = !!(ev && !ev.net && !ev.out && ev.bounces >= 1 &&
               ev.landings.length && sgn(ev.landings[0][1]) === -1);
     G.pp.n = sol.n.slice();
     G.pp.p = [c[0]-sol.n[0]*PH.r, c[1]-sol.n[1]*PH.r, c[2]-sol.n[2]*PH.r];
-  } else { f.evPath = null; f.ok = false; }
+  } else {                                   // 手动拍面但出球不合法：仍显示拍面朝向，仅不画有效线路
+    f.evPath = null; f.ok = false;
+    const mn = manualNormal(P).n;
+    G.pp.n = mn.slice();
+    G.pp.p = [c[0]-mn[0]*PH.r, c[1]-mn[1]*PH.r, c[2]-mn[2]*PH.r];
+  }
   return sol;
 }
 /* 一键最优：时机 × 力度 × 摩擦 联合搜索，只接受"过网且落在对方半台"的解 */
@@ -3336,11 +3501,12 @@ function frzApply(){
   const f = G.frz; if (!f.active) return;
   const sol = f.sol || frzResolve();
   f.active = false;
-  if (sol){
+  if (sol && sol.r){
     const P = paramObj(), b = basis(sol.n), bs = brushOf(P);
     const vp = [sol.n[0]*sol.drive + b.up[0]*bs[0] + b.right[0]*bs[1],
                 sol.n[1]*sol.drive + b.up[1]*bs[0] + b.right[1]*bs[1],
                 sol.n[2]*sol.drive + b.up[2]*bs[0] + b.right[2]*bs[1]];
+    SFX.paddleHit(sol.info, P.grip);        // 定格出球：同一套物理量驱动的击球声
     applyShot(sol.r.st, 'p', sol.n, vp);
     G.needOwn = false;
   } else {
@@ -3349,7 +3515,8 @@ function frzApply(){
     const vp = [n[0]*5, n[1]*5 + 1.2, n[2]*5];
     const padObj = { px:G.pp.p[0], py:G.pp.p[1], pz:G.pp.p[2], nx:n[0], ny:n[1], nz:n[2],
                      vx:vp[0], vy:vp[1], vz:vp[2], e:P.rest, mu:P.mu, grip:P.grip };
-    if (hitPaddle(st, padObj, null)) applyShot(st, 'p', n, vp);
+    const hinfo = {};
+    if (hitPaddle(st, padObj, hinfo)){ SFX.paddleHit(hinfo, P.grip); applyShot(st, 'p', n, vp); }
     else applyShot(Float64Array.from([f.c[0],f.c[1],f.c[2], n[0]*6, n[1]*6+1.5, n[2]*6, 0,0,0]), 'p', n, vp);
     G.needOwn = false;
   }
