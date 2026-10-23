@@ -583,15 +583,13 @@ function hitPaddle(st, pad, info){
   return true;
 }
 
-/* ══ 击球声效（Web Audio 实时合成 · 物理驱动）═══════════════════════
-   全部音色由碰撞物理量实时合成，无音频文件：
-   · 撞击声 = 底板 thump（低频 sweep，随撞击力度升频） + 胶皮 pop（带通噪声）
-              + 高频 click（大力才出现的拍边脆响）
-   · 摩擦声 = 带通噪声 × 低频 AM「颗粒咬球」调制：
-              - 滑移速度 slip → 摩擦音量/拖尾；咬住比例 Jt/Jmax → 摩擦存在感
-              - 摩擦剂 grip（胶皮粘性）→ 音色：粘性=颗粒粗/频带低/调制深（沙沙咬球），
-                涩性=细密高频（咝声顺滑）
-   · 台面弹跳 = 木质「嗒」（1kHz→480Hz sweep + 高频噪声）
+/* ══ 击球声效（Web Audio 模态合成 · 物理驱动）══════════════════════
+   无音频文件，全部按 Russell 2018《Acoustics of ping-pong》的模态分析建模：
+   · 撞击声 = 底板双结构模态（~170/720Hz 衰减正弦，胶皮→频率/阻尼）
+              + 接触瞬态 burst + 球壳 snap-through 高频（8.5-12kHz，大力增强）
+   · 摩擦声 = 极轻极短的带通噪声「沙」，紧贴撞击（滑移/咬球比例驱动，
+              摩擦剂 grip → 带通中心：粘性低、涩性高）
+   · 落台声 = 球壳 ~6kHz「叮」+ 台面木板模态「嗒」，比击球声更短更亮
    · 擦网/落地 = 闷响，音量随撞击速度
    总线挂动态压缩器防爆音；V 键开关；首次按键/点击解锁 AudioContext */
 const SFX = (()=>{
@@ -620,9 +618,28 @@ const SFX = (()=>{
   }
   function noise(t,dur){ const s=ctx.createBufferSource(); s.buffer=noiseBuf; s.loop=true; s.start(t); s.stop(t+dur); return s; }
 
-  /* 击球：info 来自 hitPaddle（vn 法向撞击速度 / slip 滑移 / Jt·Jmax 咬球比例），grip=摩擦剂 */
+  /* 衰减正弦模态（modal synthesis 核心件）：真实撞击声 = 若干模态的指数衰减叠加 */
+  function ping(freq, t, gain, tau){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.frequency.value=freq;
+    g.gain.setValueAtTime(Math.max(0.0012,gain),t);
+    g.gain.exponentialRampToValueAtTime(0.0008,t+tau);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+tau+0.03);
+  }
+  /* 极短噪声瞬态（接触瞬间的"嚓"） */
+  function burst(t,dur,f,gain){
+    const src=noise(t,dur+0.02), hp=ctx.createBiquadFilter(), g=ctx.createGain();
+    hp.type='highpass'; hp.frequency.value=f;
+    g.gain.setValueAtTime(Math.max(0.0012,gain),t);
+    g.gain.exponentialRampToValueAtTime(0.0008,t+dur);
+    src.connect(hp); hp.connect(g); g.connect(master);
+  }
+  /* 击球（依据 Russell 2018《Acoustics of ping-pong》模态分析结果建模：
+     · 底板两结构模态主导（~170Hz / ~720Hz，胶皮提供阻尼与质量加载）
+     · 球壳 snap-through 在 8.5-12kHz 辐射（大力才明显）
+     · 摩擦声极轻、极短、紧贴撞击 —— 实战中几乎被撞击声掩盖） */
   function paddleHit(info, grip){
-    if (!enabled || !ensure() || !throttle('hit',30)) return;
+    if (!enabled || !ensure() || !throttle('hit',25)) return;
     const t = ctx.currentTime + 0.001;
     const gripN = Math.max(0, Math.min(1, grip==null?0.7:grip));
     const impact = Math.min(12, Math.abs((info&&info.vn)||4));
@@ -630,76 +647,57 @@ const SFX = (()=>{
     const Jmax   = (info&&info.Jmax)||0, Jt = (info&&info.Jt)||0;
     const bite   = Jmax>1e-6 ? Math.min(1, Jt/Jmax) : 0;   // 胶皮咬住滑移的比例
     const fri    = Math.min(1, slip/12);                    // 摩擦强度
-    const g0     = Math.pow(impact/12, 0.62);               // 幂律响度（贴听感）
-    /* a) 底板 thump */
-    { const o=ctx.createOscillator(), g=ctx.createGain();
-      const f0=130+impact*22;
-      o.frequency.setValueAtTime(f0*1.6,t);
-      o.frequency.exponentialRampToValueAtTime(Math.max(40,f0*0.55), t+0.05);
-      env(g,t,0.45*g0,0.001,0.045+impact*0.004);
-      o.connect(g); g.connect(master); o.start(t); o.stop(t+0.13); }
-    /* b) 胶皮 pop */
-    { const src=noise(t,0.07), bp=ctx.createBiquadFilter(), g=ctx.createGain();
-      bp.type='bandpass'; bp.frequency.value=950+impact*90; bp.Q.value=1.1;
-      env(g,t,0.85*g0,0.0008,0.02+impact*0.0035);
-      src.connect(bp); bp.connect(g); g.connect(master); }
-    /* c) 高频 click（大力拍边脆响） */
-    { const src=noise(t,0.02), hp=ctx.createBiquadFilter(), g=ctx.createGain();
-      hp.type='highpass'; hp.frequency.value=5200;
-      env(g,t,0.42*g0*g0,0.0005,0.006);
-      src.connect(hp); hp.connect(g); g.connect(master); }
-    /* d) 摩擦层：粘性胶皮颗粒粗/带通低/调制深，涩性细密高频 */
-    if (fri > 0.04 && (bite > 0.12 || fri > 0.25)){
-      const dur = 0.028 + fri*0.075 + bite*0.02;
-      const src = noise(t, dur+0.06);
-      const bp = ctx.createBiquadFilter(), g = ctx.createGain();
-      const am = ctx.createOscillator(), amg = ctx.createGain(), carrier = ctx.createGain();
-      bp.type='bandpass';
-      bp.frequency.value = 3000 - gripN*1300 + fri*400;
-      bp.Q.value = 1.4 - gripN*0.7;
-      am.frequency.value = 55 + gripN*70;
-      amg.gain.value = 0.28 + gripN*0.42;
-      carrier.gain.value = 1;
-      am.connect(amg); amg.connect(carrier.gain);
-      env(g, t, (0.16+0.5*fri)*(0.35+0.75*bite), 0.004, dur);
-      src.connect(bp); bp.connect(carrier); carrier.connect(g); g.connect(master);
-      am.start(t); am.stop(t+dur+0.06);
+    const g0     = Math.pow(impact/12, 0.55);               // 幂律响度
+    const hard   = 1-gripN;                                 // 涩性/硬板 → 模态略高、更脆
+    /* 底板双模态（胶皮软 → 频率下移、衰减更慢 = 更"闷"） */
+    ping(170*(0.9+0.22*hard)+impact*5,   t,      0.42*g0, 0.030-0.008*hard);
+    ping(720*(0.92+0.14*hard)+impact*12, t+0.001,0.30*g0, 0.016);
+    /* 接触瞬态 + 球壳高频 snap-through（"脆"的来源，大力增强） */
+    burst(t, 0.003, 3200, 0.5*g0);
+    if (impact > 2.2) ping(8500+Math.random()*3000, t+0.002, 0.15*g0*g0, 0.005);
+    /* 摩擦"沙"声：轻(≤0.1)、短(≤50ms)、无调制嗡嗡感；粘性胶皮带通更低 */
+    if (fri > 0.10 && bite > 0.2){
+      const src = noise(t, 0.06), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+      bp.type='bandpass'; bp.frequency.value = 4200 - gripN*1400; bp.Q.value = 0.9;
+      const dur = 0.016 + fri*0.03;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.09*fri*(0.4+0.6*bite), t+0.004);
+      g.gain.exponentialRampToValueAtTime(0.0008, t+0.004+dur);
+      src.connect(bp); bp.connect(g); g.connect(master);
     }
   }
-  /* 台面弹跳：木台「嗒」 */
+  /* 落台：球壳 6kHz+「叮」+ 台面木板模态「嗒」——比击球声更短更亮 */
   function tableBounce(info){
     if (!enabled || !ensure() || !throttle('tb',25)) return;
     const t=ctx.currentTime+0.001;
     const impact=Math.min(9, Math.abs((info&&info.vn)||1.5));
-    const g0=Math.pow(impact/9,0.6)*0.5;
-    const o=ctx.createOscillator(),g=ctx.createGain();
-    o.frequency.setValueAtTime(1050,t); o.frequency.exponentialRampToValueAtTime(480,t+0.02);
-    env(g,t,g0,0.0006,0.018);
-    o.connect(g); g.connect(master); o.start(t); o.stop(t+0.06);
-    const src=noise(t,0.03),bp=ctx.createBiquadFilter(),g2=ctx.createGain();
-    bp.type='bandpass'; bp.frequency.value=2100; bp.Q.value=1.2;
-    env(g2,t,g0*0.7,0.0005,0.012);
-    src.connect(bp); bp.connect(g2); g2.connect(master);
+    const g0=Math.pow(impact/9,0.55)*0.62;
+    ping(6200+Math.random()*900, t,        0.20*g0, 0.006);   // 球壳 snap-through「叮」
+    ping(9600,                   t+0.0008, 0.09*g0, 0.003);
+    ping(460+impact*10,          t,        0.28*g0, 0.020);   // 台面板模态「嗒」
+    ping(980,                    t+0.0005, 0.16*g0, 0.010);
+    burst(t, 0.002, 2600, 0.35*g0);
   }
-  /* 擦网：闷响 */
+  /* 擦网：网布闷响（无模态，纯低通噪声） */
   function netTouch(v){
     if (!enabled || !ensure() || !throttle('net',60)) return;
     const t=ctx.currentTime+0.001;
-    const g0=0.28*Math.min(1, Math.abs(v||2)/6);
-    const src=noise(t,0.07), lp=ctx.createBiquadFilter(), g=ctx.createGain();
+    const g0=0.26*Math.min(1, Math.abs(v||2)/6);
+    const src=noise(t,0.06), lp=ctx.createBiquadFilter(), g=ctx.createGain();
     lp.type='lowpass'; lp.frequency.value=650;
-    env(g,t,g0,0.002,0.05);
+    env(g,t,g0,0.002,0.045);
     src.connect(lp); lp.connect(g); g.connect(master);
   }
-  /* 落地：低沉 thud */
+  /* 落地：地毯/地面闷 thud（低频模态 + 低通噪声） */
   function floorHit(v){
     if (!enabled || !ensure() || !throttle('fl',80)) return;
     const t=ctx.currentTime+0.001;
-    const g0=0.32*Math.min(1, Math.abs(v||3)/8);
-    const o=ctx.createOscillator(),g=ctx.createGain();
-    o.frequency.setValueAtTime(170,t); o.frequency.exponentialRampToValueAtTime(70,t+0.07);
-    env(g,t,g0,0.002,0.08);
-    o.connect(g); g.connect(master); o.start(t); o.stop(t+0.16);
+    const g0=0.30*Math.min(1, Math.abs(v||3)/8);
+    ping(150+Math.random()*30, t, g0, 0.06);
+    const src=noise(t,0.06), lp=ctx.createBiquadFilter(), g2=ctx.createGain();
+    lp.type='lowpass'; lp.frequency.value=500;
+    env(g2,t,g0*0.6,0.002,0.05);
+    src.connect(lp); lp.connect(g2); g2.connect(master);
   }
   function toggle(){ enabled=!enabled; return enabled; }
   const api = { unlock, paddleHit, tableBounce, netTouch, floorHit, toggle, get enabled(){return enabled;} };
