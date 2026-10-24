@@ -2230,6 +2230,109 @@ function syncTechUI(){
   const tag = document.getElementById('techTag');
   if (tag) tag.textContent = techLock ? TECH[techLock].name : '自动';
 }
+/* ══ 持拍手（掌 + 拇指 2 节 + 四指 3 节，链式关节）════════════════════════
+   成熟项目的做法：手与球拍一起建模 —— 手是「球拍组的子物体」（拍动则手动），
+   所以手指永远握在拍柄上，正手 / 反手 / 直拍横打 三种拍型姿态都成立。
+   坐标系沿用球拍局部：拍面在 XY 平面，+Y = 拍头方向，+Z = 正手胶皮（击球面），
+   拍柄在 -Y。手指链的通用约定：一节向 +Y 伸出，绕自身 X 轴负向弯 = 向掌侧屈。
+     直握（penhold）：拇指与食指在拍柄一前一后形成「钳口」绕住短柄，
+       中 / 无名 / 小三指梳状叠在拍背（-Z），指节自然微屈；
+     横握（shakehand）：虎口夹住长柄，拇指沿拍面下伸、食指贴拍背下伸，
+       中 / 无名 / 小三指从拍柄右侧绕到身前握拳。 */
+const SKIN_C   = 0xf3c7a0;                 // 手部肤色（与人物皮肤一致）
+const PHAL     = [0.040, 0.028, 0.024];    // 四指：近节 / 中节 / 末节
+const THUMB_PH = [0.040, 0.030];           // 拇指：近节 / 末节
+const FINGER_R = 0.0102, THUMB_R = 0.0118;
+function segMesh(len, r, mat){
+  const geo = new THREE.CapsuleGeometry(r, len*0.84, 3, 8);
+  geo.translate(0, len/2, 0);
+  const m = new THREE.Mesh(geo, mat); m.castShadow = true; return m;
+}
+/* 手指链：root → j0(段0 → j1) → j1(段1 → j2) → j2(段2)  每一节都能独立屈曲 */
+function fingerChain(mat, lens, r){
+  const root = new THREE.Group(); let parent = root; const joints = [];
+  for (const L of lens){
+    const j = new THREE.Group(); parent.add(j); joints.push(j);
+    j.add(segMesh(L, r, mat));
+    const nxt = new THREE.Group(); nxt.position.y = L; j.add(nxt); parent = nxt;
+  }
+  return { root, joints };
+}
+const V3 = (a,b,c)=>new THREE.Vector3(a,b,c);
+/* 由「局部 +Y 指向目标方向」与「屈曲方向」构造朝向：
+   makeBasis(x,y,z) 的列 = 局部 X / Y / Z 轴在世界(球拍局部)里的方向。
+   curl 方向取 -Z 列，屈曲轴 = X 列 = 手掌平面法线方向的垂轴。 */
+function qAim(up, curl){
+  const y = up.clone().normalize();
+  const z = curl.clone().normalize();            // 局部 +Z；屈曲朝局部 -Z
+  const x = new THREE.Vector3().crossVectors(y, z).normalize();   // 保证右手系
+  return new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(x, y, z));
+}
+/* 握法姿态表：pos 为手掌根坐标，各指给出基点 / 朝向 / 三节屈曲角（rad） */
+const GRIP_POSE = {
+  penhold: {
+    /* 掌心贴在拍柄后方（-Z），从正面看主要露出拇指与绕柄的食指 */
+    palm:  { pos:[0,-0.096,-0.016], scale:[0.040,0.047,0.020] },
+    thumb: { pos:[-0.028,-0.068, 0.014], up:V3(0.36,0.92,0.16), curl:V3(0,0,-1), a:[0.12,0.10] },
+    fingers:[
+      /* 食指：从拍柄右侧绕过柄身到左前方，与拇指形成「钳口」 */
+      { pos:[ 0.030,-0.060,-0.012], up:V3(-1,0,0),     curl:V3(0,0,-1), a:[0.70,0.90,0.55] },
+      /* 中 / 无名 / 小：梳状叠在拍背，微屈 */
+      { pos:[-0.024,-0.054,-0.016], up:V3(0.10,1,0),   curl:V3(0,0,-1), a:[0.16,0.22,0.16] },
+      { pos:[ 0.004,-0.056,-0.016], up:V3(0.03,1,0),   curl:V3(0,0,-1), a:[0.18,0.24,0.18] },
+      { pos:[ 0.032,-0.058,-0.016], up:V3(-0.05,1,0),  curl:V3(0,0,-1), a:[0.22,0.28,0.20] },
+    ],
+  },
+  shakehand: {
+    /* 拳心在柄的左前方，虎口夹柄：拇指沿拍面下伸、食指贴拍背下伸 */
+    palm:  { pos:[-0.028,-0.110, 0.004], scale:[0.021,0.048,0.034] },
+    thumb: { pos:[-0.022,-0.064, 0.026], up:V3(0,-1,0),    curl:V3(0,0,-1), a:[0.10,0.08] },
+    fingers:[
+      /* 食指：贴拍背沿柄下伸（与拇指相对夹住柄） */
+      { pos:[-0.022,-0.062,-0.028], up:V3(0,-1,0),     curl:V3(0,0, 1), a:[0.20,0.26,0.16] },
+      /* 中 / 无名 / 小：从柄右侧绕向身后握拳 */
+      { pos:[ 0.030,-0.086,-0.016], up:V3(0,0,-1),     curl:V3(1,0,0),  a:[0.95,1.10,0.70] },
+      { pos:[ 0.030,-0.110,-0.016], up:V3(0,0,-1),     curl:V3(1,0,0),  a:[0.98,1.12,0.72] },
+      { pos:[ 0.030,-0.134,-0.016], up:V3(0,0,-1),     curl:V3(1,0,0),  a:[1.00,1.14,0.74] },
+    ],
+  },
+};
+function buildGripHand(style){
+  const POSE = GRIP_POSE[style] || GRIP_POSE.penhold;
+  const g = new THREE.Group();
+  const mSkin = toonMat(SKIN_C), mNail = toonMat(0xe8b9a0);
+  // 手掌：缩放球体（圆润，与人物卡通风格一致），不是方板
+  const P = POSE.palm;
+  const palm = new THREE.Mesh(new THREE.SphereGeometry(1,16,12), mSkin);
+  palm.scale.set(P.scale[0], P.scale[1], P.scale[2]);
+  palm.position.set(P.pos[0],P.pos[1],P.pos[2]); palm.castShadow = true; g.add(palm);
+  // 大鱼际（拇指根肌肉）：让虎口处不是细杆
+  const thenar = new THREE.Mesh(new THREE.SphereGeometry(1,12,9), mSkin);
+  thenar.scale.set(0.021,0.028,0.017);
+  thenar.position.set(P.pos[0]-0.020, P.pos[1]+0.030, P.pos[2]+0.010); g.add(thenar);
+  // 拇指
+  const th = POSE.thumb, tc = fingerChain(mSkin, THUMB_PH, THUMB_R);
+  tc.root.position.set(th.pos[0],th.pos[1],th.pos[2]);
+  tc.root.quaternion.copy(qAim(th.up, th.curl));
+  tc.joints.forEach((j,i)=>{ j.rotation.x = -th.a[i]; });
+  g.add(tc.root);
+  // 四指
+  for (const f of POSE.fingers){
+    const fc = fingerChain(mSkin, PHAL, FINGER_R);
+    fc.root.position.set(f.pos[0],f.pos[1],f.pos[2]);
+    fc.root.quaternion.copy(qAim(f.up, f.curl));
+    fc.joints.forEach((j,i)=>{ j.rotation.x = -f.a[i]; });
+    // 指甲（末节前端一小片，卡通细节）
+    const nail = new THREE.Mesh(new THREE.SphereGeometry(0.0092,8,7), mNail);
+    nail.scale.set(1,0.55,0.42);
+    nail.position.y = PHAL[2] + 0.004;
+    fc.joints[2].add(nail);
+    g.add(fc.root);
+  }
+  return g;
+}
+
 function makePaddle(rubber, style){
   const S = PAD_GEO[style] || PAD_GEO.penhold;
   const g = new THREE.Group();
@@ -2266,6 +2369,12 @@ function makePaddle(rubber, style){
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(S.flare*1.16, S.flare*1.16, 0.020, 18),
       toonMat(0x3a2716));
     cap.position.set(0, gy - S.grip*0.5 + 0.010, 0); g.add(cap);
+  } else {
+    /* 直拍柄尾软木塞（中式直拍特征，握感细节） */
+    const cork = new THREE.Mesh(new THREE.CylinderGeometry(S.flare*0.78, S.flare*0.88, 0.016, 14),
+      toonMat(0xc99a5f));
+    cork.position.set(0, gy - S.grip*0.5 + 0.008, -0.002);
+    cork.scale.x = 0.86; cork.castShadow = true; g.add(cork);
   }
   // 整个球拍半透明：可从背面看穿击球（底板 / 拍柄 / 拍肩一并半透）
   g.traverse(o => {
@@ -2275,6 +2384,12 @@ function makePaddle(rubber, style){
       o.material.depthWrite = false;
     }
   });
+  /* 持拍手必须在「整体半透明化」之后再挂：
+     手是肉色的，若被上面的遍历一起改成 0.5 透明，握法细节就看不清了 ——
+     而手指的观感恰恰是这个模型最想表达的部分。 */
+  const hand = buildGripHand(style);
+  g.add(hand);
+  g.userData.hand = hand;
   return g;
 }
 let   pPad = makePaddle(0xd23b3b, 'penhold');    scene.add(pPad);   // 玩家：直拍 · 红面
@@ -2730,7 +2845,11 @@ const MATCH_ZONES = [
 /* 比赛模式：以最可能得分为目标选落点（落点不固定；胜率高可连续打同一点） */
 function matchPickTarget(){
   const win = G.match.zoneWin, last = G.match.lastZone;
-  const lastSide = (last!=null) ? Math.sign(MATCH_ZONES[last].x||0) : 0;
+  // lastZone = -1（新局/无上一次）时 MATCH_ZONES[-1] 是 undefined，
+  // 原来只判 last!=null ⇒ 取 .x 抛异常 ⇒ setMatch 中断、每分自适应从未生效
+  // （表现：开启比赛模式后 P1 每分都打同一个默认落点）。
+  const lastOk   = Number.isInteger(last) && last >= 0 && last < MATCH_ZONES.length;
+  const lastSide = lastOk ? Math.sign(MATCH_ZONES[last].x || 0) : 0;
   const vals = MATCH_ZONES.map((z,i)=>{
     const wr = win[i];
     let v = z.d*0.55 + wr*0.45;                  // 基础难度 + 历史胜率
@@ -2955,6 +3074,28 @@ function safeAim(t){
            t[1] < 0 ? clamp(t[1], -zl, 0) : clamp(t[1], 0, zl) ];
 }
 
+/* ── 玩家每板重挑落点（与 AI 对称）──
+   原来整分只用同一个 G.target（每分开始选一次），于是 P1 一直打同一个点；
+   AI 却每板按「对手站位反侧 + 随机深度」重算。这里给玩家同样能力：
+   ① 打对手站位的反侧（战术调动）② 侧别轮换（避免连打同一边）③ 随机微调（不必过于死板）
+   你点击台面设定的落点仍作基准（保留 45% 权重），不会被完全覆盖。 */
+let aimKey = null, aimTgt = null, aimSide = 0;
+function playerRallyAim(){
+  const b = safeAim(G.target);
+  const ax = (hAI && hAI.stance && isFinite(hAI.stance[0])) ? hAI.stance[0]
+           : (isFinite(G.ap.p[0]) ? G.ap.p[0] : 0);
+  const amp   = (G.mode === 'match') ? 0.40 : 0.20;   // 练习模式保守，尊重你点的位置
+  const k     = amp/0.40;
+  const away  = clamp(-ax*amp, -0.34, 0.34);          // 往对手站位反侧打
+  const swap  = (-aimSide) * 0.26 * k;                // 侧别轮换：尽量不打上一板同一侧
+  // 幅度经 A/B 实测标定：幅度过大（0.55）时 21% 的球自己出界，
+  // 这里收紧并钳进安全区 —— 变线要变化，但不能变成失误
+  const tx    = clamp(b[0]*0.55 + away*0.62 + swap + (Math.random()-0.5)*0.14*k, -0.50, 0.50);
+  const tz    = clamp(b[1] + (Math.random()-0.5)*0.10*k, -1.15, -0.50);
+  aimSide     = Math.sign(tx) || aimSide;
+  return safeAim([tx, tz]);
+}
+
 function computePlan(){
   if (!G.live || G.last === 'p') return;
   const P = paramObj();
@@ -2964,6 +3105,14 @@ function computePlan(){
   let ss = strokeSide(cd.c[0], 'p', stX0, cd.t);
   let bh = ss.bh;
   let target = safeAim(G.target);
+  // ── 相持阶段每板重新挑落点（打对手站位反侧 + 侧别轮换 + 随机微调）
+  //    同一来球内部若因调参等原因重算，用 aimKey 缓存结果，避免落点抖动导致接触点跳变
+  let usedVar = false;
+  const key = G.rally + ':' + G.ptHits + ':' + G.last;
+  if (G.auto && G.ptHits >= 3 && !isReceive()){
+    if (aimKey !== key){ aimKey = key; aimTgt = playerRallyAim(); }
+    target = aimTgt.slice(); usedVar = true;
+  }
   // ── 对拉期间：玩家落点也加深（压底线，配合加质量）
   if (G.counterLoop && G.counterLoop.active && G.auto){
     const boardsAfterWarmup = Math.max(0, G.counterLoop.hits - 2);
@@ -2989,10 +3138,22 @@ function computePlan(){
   }
   // 落点变了 → 接触点也变了，按最终接触点重算站位与正/反手
   ss = strokeSide(cd.c[0], 'p', stX0, cd.t); bh = ss.bh;
+  const base = safeAim(G.target);
+  const legalSol = s => { const L = s && s.r && s.r.ev && s.r.ev.landings && s.r.ev.landings[0];
+                          return !!L && !s.r.ev.out; };
   const opt = techOpt(P, G.st, bh, cd.c, G.recvP.key || recvLock);
-  const sol = G.auto
+  let sol = G.auto
     ? solveAutoSafe(cd.c, -1, target, opt, G.comp)
     : manualPlan(cd.c, P);
+  /* 保险：变线目标若这一板解不出「过网且落在对方半台」，就退回你设定的基准落点重解。
+     宁可这一板不变线，也不能把变线变成白送分的出界球（A/B 实测：无保险时 21% 出界）。*/
+  if (G.auto && usedVar && !legalSol(sol)){
+    const cd0 = findContact(G.st, -1, base, P);
+    if (cd0){
+      const sol0 = solveAutoSafe(cd0.c, -1, base, opt, G.comp);
+      if (legalSol(sol0)){ cd = cd0; sol = sol0; target = base.slice(); }
+    }
+  }
   if (!sol){ G.plan = null; return; }
   G.plan = { c:cd.c, t:cd.t, t0:cd.t, born:GT, ...sol, bh,
              sx:ss.gx, latW:ss.latW,
@@ -5301,6 +5462,9 @@ function poseCharModel(P, J, I, dt){
   aimBoneAt(B.UpperArmR, A.UpperArmR, _cV[0].set(elb[0],elb[1],elb[2]));
   aimBoneAt(B.LowerArmR, A.LowerArmR, _cV[1].set(wT[0],wT[1],wT[2]));
   aimBoneAt(B.FistR,     A.FistR,     _cV[2].set(gT[0],gT[1],gT[2]));
+  /* 模型自带的 FistR 是"无手指的拳头"（Quaternius 系模型通病），握法细节
+     由挂在球拍组上的 buildGripHand 呈现 —— 把拳骨缩到腕部，避免双份手。 */
+  B.FistR.scale.setScalar(0.38);
   // ── 手握拍柄：臂链 IK 之后，拳头实际落点与拍柄之间总留有 ~5-8cm 缺口
   //    （腕→握把偏移 0.047 + 肘弯余量），观感就是"手没握住拍柄"。
   //    把「握把点」直接钉到拳心（沿拍柄方向前移 2.8cm），球拍整体平移过去，
@@ -5478,12 +5642,24 @@ function buildHuman(skin, shirt, shorts, shoe, rightHanded, ghost, letter, start
   P.jEl = [ ball(0.060,mSkin),  ball(0.060,mSkin)  ];
   P.jKn = [ ball(0.084,mSkin),  ball(0.084,mSkin)  ];
 
-  // 卡通白手套（持拍手不透明）
-  const ri0 = rightHanded ? 0 : 1;
-  P.glove = [];
+  // 卡通白手套（持拍手不透明）。持拍手那只缩小成"手腕"——
+  // 真正的手指握法由挂在球拍组上的 buildGripHand 精细呈现，不能双份手
+  const ri0 = rightHanded ? 0 : 1;  P.glove = [];
   for (let i=0;i<2;i++){
     const g = new THREE.Mesh(new THREE.SphereGeometry(0.064,14,10), i===ri0 ? mHit : mGlove);
     g.scale.set(1, 0.94, 1.16); root.add(g); P.glove.push(g);
+  }
+  P.glove[ri0].scale.set(0.62, 0.58, 0.78);        // 持拍手手套 → 腕部小球
+  /* 躯体精细化（火柴人模式）：胸廓隆起 + 球袜，不再是一根直筒 */
+  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.155,16,12), mShirt);
+  chest.scale.set(1.16, 0.72, 1.04); chest.position.y = 0.125;
+  P.torso.add(chest);                               // 挂在躯干上，随前倾/转腰一起动
+  if (!GH) addOutline(chest, 1.06);
+  const sockMat = toonMat(0xf2f2ee);
+  P.sock = [];
+  for (let i=0;i<2;i++){
+    const s = new THREE.Mesh(new THREE.CapsuleGeometry(0.070,0.075,4,10), sockMat);
+    s.position.y = -0.335; P.legF[i].add(s); P.sock.push(s);   // 小腿骨末端 = 踝上方
   }
   // 圆头卡通鞋
   P.foot = [];
